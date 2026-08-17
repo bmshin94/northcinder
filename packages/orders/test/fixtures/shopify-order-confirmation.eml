@@ -1,0 +1,30 @@
+From: "Aurora Outfitters" <no-reply@shop-aurora.myshopify.com>
+To: buyer@example.com
+Subject: Order confirmation #1021 for Buyer Example
+Date: Wed, 1 Jul 2026 10:15:00 -0700
+Message-ID: <shopify-1021-confirmation@shop-aurora.myshopify.com>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="shopify-boundary-1021"
+
+This is a multi-part message in MIME format.
+--shopify-boundary-1021
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+Thanks for your order, Jordan!
+
+Order #1021
+Placed on July 1, 2026
+
+1 x Cedar Trail Jacket - $128.00
+2 x Merino Wool Socks - $18.00
+
+Total: $172.00
+
+Powered by Shopify
+--shopify-boundary-1021
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+<html><body><p>Thanks for your order, Jordan!</p><p>Order #1021</p></body></html>
+--shopify-boundary-1021--

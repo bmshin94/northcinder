@@ -1,0 +1,10 @@
+packages:
+  - northcinder
+  - client
+  - service
+  - remote
+  - site
+  - adapters/*
+  - packages/*
+patchedDependencies:
+  '@modelcontextprotocol/sdk@1.30.0': patches/@modelcontextprotocol__sdk@1.30.0.patch

@@ -1,0 +1,15 @@
+From: "Amazon.com" <ship-confirm@amazon.com>
+To: buyer@example.com
+Subject: Your package is on the way
+Date: Fri, 3 Jul 2026 08:30:00 -0700
+Message-ID: <amazon-000-0000000-shipped@amazon.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+Hi Jordan,
+
+Order #000-0000000-0000000 has shipped.
+
+Carrier: USPS
+Tracking Number: 9400111899223197428490

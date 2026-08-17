@@ -1,0 +1,44 @@
+{
+  "itemId": "v1|110552649522|410108227370",
+  "title": "Sony WH-1000XM5 Wireless Noise Canceling Headphones - Black",
+  "shortDescription": "Industry-leading noise cancellation with two processors and eight microphones.",
+  "price": {
+    "value": "248.00",
+    "currency": "USD"
+  },
+  "categoryPath": "Consumer Electronics|Portable Audio & Headphones|Headphones",
+  "condition": "New",
+  "conditionId": "1000",
+  "itemLocation": { "postalCode": "952**", "country": "US" },
+  "image": {
+    "imageUrl": "https://i.sandbox.ebayimg.com/images/g/abcd/s-l1600.jpg"
+  },
+  "brand": "Sony",
+  "seller": {
+    "username": "soundgear-outlet",
+    "feedbackPercentage": "99.6",
+    "feedbackScore": 18342
+  },
+  "estimatedAvailabilities": [
+    {
+      "deliveryOptions": ["SHIP_TO_HOME"],
+      "estimatedAvailabilityStatus": "IN_STOCK",
+      "estimatedAvailableQuantity": 8,
+      "estimatedSoldQuantity": 41
+    }
+  ],
+  "shippingOptions": [
+    {
+      "shippingServiceCode": "USPSPriority",
+      "shippingCarrierCode": "USPS",
+      "type": "Expedited Shipping",
+      "shippingCost": { "value": "0.00", "currency": "USD" },
+      "shippingCostType": "FIXED",
+      "minEstimatedDeliveryDate": "2026-07-08T07:00:00.000Z",
+      "maxEstimatedDeliveryDate": "2026-07-10T07:00:00.000Z"
+    }
+  ],
+  "buyingOptions": ["FIXED_PRICE"],
+  "itemWebUrl": "https://sandbox.ebay.com/itm/110552649522",
+  "listingMarketplaceId": "EBAY_US"
+}

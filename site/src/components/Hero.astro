@@ -1,0 +1,73 @@
+---
+import LedgerCard from './LedgerCard.astro';
+import { REPO_URL } from '../consts';
+---
+
+<header class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <span class="eyebrow">The buyer-loyal shopping agent</span>
+      <h1>Buyer-loyal. Ad-neutral.<br /><em>Auditable.</em></h1>
+      <p class="lede">
+        NorthCinder compares configured stores against your brief, shows its reasons, and never
+        buys without your explicit approval. It does not sell sponsored placement. You run the
+        open code with your own AI agent; there is no NorthCinder account, hosted endpoint, or telemetry.
+      </p>
+      <div class="claim-box">
+        <span class="claim-tag">The one honest claim</span>
+        <span class="claim-text">deterministic and auditable, never &ldquo;provably neutral&rdquo;</span>
+      </div>
+      <div class="hero-ctas">
+        {REPO_URL ? <a href={`${REPO_URL}#install-from-source`} class="btn btn-primary mono">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path>
+          </svg>
+          Install from source
+        </a> : <code class="btn btn-primary mono">Install from source</code>}
+        {REPO_URL && <a href={`${REPO_URL}/blob/main/docs/RANKING.md`} class="btn btn-secondary">Read the ranking spec</a>}
+      </div>
+    </div>
+
+    <LedgerCard />
+  </div>
+</header>
+
+<style>
+  .hero { padding: 84px 0 64px; }
+  .hero-grid { display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 56px; align-items: center; }
+  .hero h1 { font-size: 42px; font-weight: 800; letter-spacing: -0.025em; line-height: 1.12; margin: 14px 0 18px; }
+  .hero h1 em { font-style: normal; color: var(--verified); }
+  .hero p.lede { font-size: 16px; color: var(--ink-2); max-width: 46ch; margin: 0 0 22px; }
+  .claim-box {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 8px;
+    background: var(--verified-tint);
+    border-radius: 7px;
+    padding: 10px 14px;
+    margin-bottom: 26px;
+  }
+  .claim-box .claim-tag {
+    font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--verified);
+  }
+  .claim-box .claim-text { font-size: 13px; color: var(--ink); }
+  .hero-ctas { display: flex; flex-wrap: wrap; gap: 12px; }
+  .btn { display: inline-flex; align-items: center; gap: 7px; min-height: 44px; font-weight: 600; font-size: 13.5px; padding: 10px 18px; border-radius: 7px; text-decoration: none; }
+  .btn-primary { background: var(--ink); color: var(--paper); }
+  code.btn-primary { cursor: text; }
+  .btn-secondary { border: 1px solid var(--line); color: var(--ink); }
+
+  @media (max-width: 860px) {
+    .hero-grid { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 480px) {
+    .hero { padding: 52px 0 44px; }
+    .hero h1 { font-size: clamp(2rem, 11vw, 2.625rem); }
+    .claim-box { display: flex; flex-wrap: wrap; }
+  }
+</style>

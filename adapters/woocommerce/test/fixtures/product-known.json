@@ -1,0 +1,49 @@
+{
+  "id": 23443,
+  "name": "Lamp Black Wall",
+  "slug": "lamp-black-wall",
+  "parent": 0,
+  "type": "simple",
+  "variation": "",
+  "permalink": "https://woodmart.xtemos.com/shop/other/decor/lamp-black-wall/",
+  "sku": "",
+  "short_description": "<p>A hand-finished black wall <strong>lamp</strong> with a warm brass accent.</p>",
+  "description": "<p>Full product description with more detail than the short description.</p>",
+  "on_sale": false,
+  "prices": {
+    "price": "24500",
+    "regular_price": "24500",
+    "sale_price": "24500",
+    "price_range": null,
+    "currency_code": "USD",
+    "currency_symbol": "$",
+    "currency_minor_unit": 2,
+    "currency_decimal_separator": ".",
+    "currency_thousand_separator": ",",
+    "currency_prefix": "$",
+    "currency_suffix": ""
+  },
+  "price_html": "<span class=\"woocommerce-Price-amount amount\">$245.00</span>",
+  "average_rating": "0",
+  "review_count": 0,
+  "images": [
+    {
+      "id": 23548,
+      "src": "https://woodmart.xtemos.com/wp-content/uploads/2018/09/decor-product-3-1.jpg",
+      "thumbnail": "https://woodmart.xtemos.com/wp-content/uploads/2018/09/decor-product-3-1-430x491.jpg",
+      "srcset": "",
+      "sizes": "",
+      "name": "decor-product-3",
+      "alt": ""
+    }
+  ],
+  "categories": [],
+  "tags": [],
+  "is_purchasable": true,
+  "is_in_stock": true,
+  "is_on_backorder": false,
+  "low_stock_remaining": null,
+  "sold_individually": false,
+  "add_to_cart": { "text": "Add to cart", "description": "Add \"Lamp Black Wall\" to your cart" },
+  "has_options": false
+}

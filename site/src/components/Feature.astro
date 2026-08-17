@@ -1,0 +1,44 @@
+---
+interface Props {
+  eyebrow: string;
+  title: string;
+  copy: string;
+  reverse?: boolean;
+}
+const { eyebrow, title, copy, reverse = false } = Astro.props;
+---
+
+<div class={`feature-row ${reverse ? 'reverse' : ''}`}>
+  <div class="f-copy">
+    <span class="eyebrow">{eyebrow}</span>
+    <h3>{title}</h3>
+    <p>{copy}</p>
+  </div>
+  <div class="f-art">
+    <slot />
+  </div>
+</div>
+
+<style>
+  .feature-row { display: grid; grid-template-columns: 1fr 1fr; gap: 60px; align-items: center; padding: 56px 0; border-top: 1px solid var(--line); }
+  .feature-row:first-child { border-top: none; }
+  .feature-row.reverse .f-copy { order: 2; }
+  .feature-row.reverse .f-art { order: 1; }
+  .f-copy .eyebrow { display: block; margin-bottom: 10px; }
+  .f-copy h3 { font-size: 24px; font-weight: 700; letter-spacing: -0.015em; margin: 0 0 10px; }
+  .f-copy p { color: var(--ink-2); font-size: 14px; max-width: 42ch; margin: 0; }
+  .f-art {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 18px;
+    font-size: 12px;
+    min-height: 160px;
+  }
+
+  @media (max-width: 860px) {
+    .feature-row { grid-template-columns: 1fr; gap: 24px; padding: 40px 0; }
+    .feature-row.reverse .f-copy { order: 1; }
+    .feature-row.reverse .f-art { order: 2; }
+  }
+</style>

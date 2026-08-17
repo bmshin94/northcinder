@@ -1,0 +1,60 @@
+{
+  "name": "@northcinder/client",
+  "version": "0.1.0",
+  "description": "Buyer-run NorthCinder MCP client (stdio): criteria search through the buyer's engine, local mandate-gated checkout, and a local append-only audit trail",
+  "license": "MIT",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "keywords": ["northcinder", "mcp", "shopping", "neutral-ranking"],
+  "publishConfig": { "access": "public" },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "northcinder": "./dist/cli.js",
+    "northcinder-mcp": "./dist/main.js",
+    "northcinder-watch": "./dist/watch-main.js",
+    "northcinder-orders": "./dist/orders-main.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "!dist/main.bundle.js",
+    "!dist/**/*.map"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "start": "node dist/main.js",
+    "build:mcpb": "node scripts/build-mcpb.mjs"
+  },
+  "dependencies": {
+    "@northcinder/adapter-kit": "workspace:*",
+    "@northcinder/checkout": "workspace:*",
+    "@northcinder/orders": "workspace:*",
+    "@northcinder/protocol": "workspace:*",
+    "@northcinder/watches": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^4.1.5",
+    "@northcinder/profile": "workspace:*",
+    "@northcinder/brief": "workspace:*",
+    "hono": "^4.13.2",
+    "@hono/node-server": "^1.19.15"
+  },
+  "devDependencies": {
+    "@northcinder/adapter-amazon": "workspace:*",
+    "@northcinder/adapter-ebay": "workspace:*",
+    "@northcinder/adapter-etsy": "workspace:*",
+    "@northcinder/adapter-shopify": "workspace:*",
+    "@northcinder/service": "workspace:*",
+    "@types/node": "^20.17.0",
+    "esbuild": "^0.28.1",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

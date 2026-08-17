@@ -1,0 +1,76 @@
+---
+import { REPO_URL } from '../consts';
+
+// Four falsifiable ways to check the "no seller money" claim — README.md
+// "We take no seller money — here's the proof" is the source of truth.
+const links = [
+  {
+    num: '01',
+    lbl: 'Read the ranking code',
+    doc: 'RANKING.md',
+    href: `${REPO_URL}/blob/main/docs/RANKING.md`,
+  },
+  {
+    num: '02',
+    lbl: 'Read the neutrality audit',
+    doc: 'NEUTRALITY-AUDIT.md',
+    href: `${REPO_URL}/blob/main/docs/NEUTRALITY-AUDIT.md`,
+  },
+  {
+    num: '03',
+    lbl: 'Re-run the ranking yourself',
+    doc: 'rankingVerified',
+    href: `${REPO_URL}/blob/main/docs/RANKING.md#what-verification-proves--and-what-it-doesnt`,
+  },
+  {
+    num: '04',
+    lbl: 'Read your own audit trail',
+    doc: 'audit.jsonl',
+    href: `${REPO_URL}#readme`,
+  },
+];
+---
+
+<section class="proof-band" id="proof">
+  <div class="wrap proof-inner">
+    <div class="proof-text">
+      <h2>We take no seller money — here&rsquo;s the proof</h2>
+      <p>Not a slogan. Every claim below is falsifiable, and you can check it yourself, right now.</p>
+    </div>
+    <div class="proof-links">
+      {links.map((l) => (
+        REPO_URL ? (
+          <a class="proof-link" href={l.href}>
+            <span class="num mono">{l.num}</span>
+            <span class="lbl">{l.lbl}</span>
+            <span class="doc mono">{l.doc}</span>
+          </a>
+        ) : (
+          <div class="proof-link">
+            <span class="num mono">{l.num}</span>
+            <span class="lbl">{l.lbl}</span>
+            <span class="doc mono">{l.doc}</span>
+          </div>
+        )
+      ))}
+    </div>
+  </div>
+</section>
+
+<style>
+  .proof-band { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 40px 0; background: var(--surface); }
+  .proof-inner { display: flex; align-items: center; gap: 40px; }
+  .proof-text { flex-shrink: 0; max-width: 340px; }
+  .proof-text h2 { font-size: 19px; font-weight: 700; margin: 0 0 8px; letter-spacing: -0.01em; }
+  .proof-text p { color: var(--ink-2); font-size: 13px; margin: 0; }
+  .proof-links { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 28px; flex: 1; }
+  .proof-link { display: flex; align-items: baseline; gap: 8px; min-height: 44px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 13px; text-decoration: none; }
+  .proof-link .num { color: var(--verified); font-weight: 700; font-size: 12px; }
+  .proof-link .lbl { font-weight: 600; }
+  .proof-link .doc { color: var(--ink-2); font-size: 11.5px; }
+
+  @media (max-width: 860px) {
+    .proof-inner { flex-direction: column; align-items: flex-start; }
+    .proof-links { grid-template-columns: 1fr; width: 100%; }
+  }
+</style>

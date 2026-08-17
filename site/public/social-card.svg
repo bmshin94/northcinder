@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">NorthCinder</title>
+  <desc id="desc">Buyer-loyal, ad-neutral, auditable shopping.</desc>
+  <rect width="1200" height="630" fill="#fbfaf7"/>
+  <rect x="72" y="72" width="1056" height="486" rx="24" fill="#fff" stroke="#e6e2d9" stroke-width="3"/>
+  <path d="M150 259v-76h84l18 52 126-155" fill="none" stroke="#1f7a5c" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="150" y="365" fill="#1a1a17" font-family="system-ui, sans-serif" font-size="76" font-weight="750">NorthCinder</text>
+  <text x="150" y="438" fill="#57544c" font-family="system-ui, sans-serif" font-size="36">Buyer-loyal. Ad-neutral. Auditable.</text>
+</svg>

@@ -1,0 +1,37 @@
+{
+  "name": "@northcinder/orders",
+  "version": "0.1.0",
+  "description": "NorthCinder order graph: merges checkout order records with deterministically parsed order/shipping/return emails — no LLM parsing anywhere (determinism law). Deterministic per-merchant/per-format parser plugins + generic fallback; unparseable mail lands as a structured unparsed record, never dropped. Return-window ICS export + reminder (reuses @northcinder/watches Notifier).",
+  "license": "MIT",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "keywords": ["northcinder", "orders", "shopping"],
+  "publishConfig": { "access": "public" },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.map"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@northcinder/checkout": "workspace:*",
+    "@northcinder/protocol": "workspace:*",
+    "@northcinder/watches": "workspace:*",
+    "zod": "^4.1.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

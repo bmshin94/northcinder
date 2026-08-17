@@ -1,0 +1,21 @@
+{
+  "listing_id": 1234567890,
+  "user_id": 5678901,
+  "shop_id": 24680135,
+  "title": "Handmade Ceramic Table Lamp - Speckled Clay with Linen Shade",
+  "description": "A hand-thrown stoneware lamp base glazed in speckled cream, fitted with a natural linen drum shade. Each piece is unique.",
+  "state": "active",
+  "quantity": 3,
+  "url": "https://www.etsy.com/listing/1234567890/handmade-ceramic-table-lamp-speckled",
+  "num_favorers": 214,
+  "listing_type": "physical",
+  "price": {
+    "amount": 14500,
+    "divisor": 100,
+    "currency_code": "USD"
+  },
+  "who_made": "i_did",
+  "when_made": "made_to_order",
+  "is_supply": false,
+  "tags": ["ceramic lamp", "handmade lighting", "stoneware"]
+}

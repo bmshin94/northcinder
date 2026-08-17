@@ -1,0 +1,100 @@
+---
+// The buyer's-brief ledger card — the product demonstrated, not described.
+// Numbers here are a representative worked example (a real search shape), not
+// a live API call: this is a static marketing page. Reflects the real fields
+// a `search_products` result carries (offer, price, availability, sponsored
+// flag, criteria winner) — see README.md "The purchase flow" + docs/RANKING.md.
+---
+
+<div class="artifact-card">
+  <h2>Buyer's brief</h2>
+  <p class="sub">&ldquo;merino wool travel loafer&rdquo; — 4 finalists from 11 ranked offers.</p>
+
+  <div class="arow win">
+    <div class="rank mono">1</div>
+    <div>
+      <div class="a-title">The Loafer — Driving Style</div>
+      <div class="a-sub">Rothy&rsquo;s · rothys.com</div>
+      <div class="dot-verified">criteria winner</div>
+    </div>
+    <div>
+      <div class="a-price mono">128.00 USD</div>
+      <div class="a-avail">in stock · by Jul 12</div>
+    </div>
+  </div>
+
+  <div class="arow">
+    <div class="rank mono">2</div>
+    <div>
+      <div class="a-title">Wool Runner Mizzle</div>
+      <div class="a-sub">Allbirds · allbirds.com</div>
+    </div>
+    <div>
+      <div class="a-price mono">138.00 USD</div>
+      <div class="a-avail">in stock · by Jul 11</div>
+    </div>
+  </div>
+
+  <div class="arow">
+    <div class="rank mono">3</div>
+    <div>
+      <div class="a-title">Merino Wool Slip-On</div>
+      <div class="a-sub">Everlane · everlane.com</div>
+      <div class="flag-chip-sm">sponsored · deprioritized</div>
+    </div>
+    <div>
+      <div class="a-price mono">142.00 USD</div>
+      <div class="a-avail">in stock · by Jul 13</div>
+    </div>
+  </div>
+
+  <div class="a-cov">searched 3 stores · 1 blocked · 1 not configured</div>
+</div>
+
+<style>
+  .artifact-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px 16px 12px;
+    font-size: 12.5px;
+    box-shadow: 0 24px 48px -24px rgba(26, 26, 23, 0.16);
+  }
+  .artifact-card h2 { font-size: 13.5px; font-weight: 700; margin: 0 0 3px; }
+  .artifact-card p.sub { margin: 0 0 12px; color: var(--ink-2); font-size: 10.5px; }
+  .arow { display: grid; grid-template-columns: 18px 1fr auto; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); align-items: start; }
+  .arow:first-of-type { border-top: none; }
+  .arow .rank { font-weight: 700; font-size: 11px; color: var(--ink-2); }
+  .arow.win .rank { color: var(--verified); }
+  .a-title { font-weight: 600; font-size: 12px; }
+  .a-sub { color: var(--ink-2); font-size: 10px; margin-top: 1px; }
+  .dot-verified {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+    font-size: 8.5px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--verified);
+    margin-top: 4px;
+  }
+  .dot-verified::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--verified); display: inline-block; }
+  .flag-chip-sm {
+    display: inline-flex;
+    margin-top: 4px;
+    font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+    font-size: 8px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--flag);
+    background: var(--flag-tint);
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+  .a-price { font-weight: 700; font-size: 12.5px; text-align: right; }
+  .a-avail { text-align: right; color: var(--ink-2); font-size: 9.5px; margin-top: 2px; }
+  .a-cov { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); color: var(--ink-2); font-size: 10px; }
+</style>

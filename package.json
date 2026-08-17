@@ -1,0 +1,30 @@
+{
+  "name": "northcinder-monorepo",
+  "private": true,
+  "version": "0.0.0",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "pnpm --filter '!northcinder' --filter '!northcinder-monorepo' -r build && pnpm --filter northcinder build",
+    "test": "pnpm -r test",
+    "release:build": "corepack pnpm --filter '!northcinder' --filter '!northcinder-monorepo' -r build && corepack pnpm --filter northcinder build",
+    "release:typecheck": "corepack pnpm --filter './packages/*' --filter './adapters/*' --filter @northcinder/service --filter @northcinder/client --filter @northcinder/remote -r exec tsc --noEmit --skipLibCheck false && node scripts/release/astro-check.mjs",
+    "release:test": "corepack pnpm -r test",
+    "release:audit": "node scripts/release/audit.mjs",
+    "audit:public": "node scripts/release/public-surface-audit.mjs"
+  },
+  "devDependencies": {
+    "jsonschema": "1.5.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "js-yaml@4.3.0": "4.3.1",
+      "nanoid@3.3.15": "3.3.18",
+      "postcss@8.5.16": "8.5.23",
+      "sharp@0.34.5": "0.35.0",
+      "svgo@4.0.1": "4.0.2"
+    }
+  }
+}

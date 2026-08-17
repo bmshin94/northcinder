@@ -1,0 +1,10 @@
+{
+  "allow": [],
+  "deny": [],
+  "knownPlatformDomains": [
+    { "domain": "myshopify.com", "detail": "storefront hosted on Shopify" },
+    { "domain": "ebay.com", "detail": "listing on eBay" },
+    { "domain": "etsy.com", "detail": "shop on Etsy" },
+    { "domain": "amazon.com", "detail": "listing on Amazon" }
+  ]
+}

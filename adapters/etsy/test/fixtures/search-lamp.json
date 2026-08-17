@@ -1,0 +1,51 @@
+{
+  "count": 2,
+  "results": [
+    {
+      "listing_id": 1234567890,
+      "user_id": 5678901,
+      "shop_id": 24680135,
+      "title": "Handmade Ceramic Table Lamp - Speckled Clay with Linen Shade",
+      "description": "A hand-thrown stoneware lamp base glazed in speckled cream, fitted with a natural linen drum shade. Each piece is unique.",
+      "state": "active",
+      "creation_timestamp": 1750000000,
+      "ending_timestamp": 1760000000,
+      "quantity": 3,
+      "shop_section_id": null,
+      "url": "https://www.etsy.com/listing/1234567890/handmade-ceramic-table-lamp-speckled",
+      "num_favorers": 214,
+      "is_taxable": true,
+      "listing_type": "physical",
+      "price": {
+        "amount": 14500,
+        "divisor": 100,
+        "currency_code": "USD"
+      },
+      "who_made": "i_did",
+      "when_made": "made_to_order",
+      "is_supply": false,
+      "tags": ["ceramic lamp", "handmade lighting", "stoneware"]
+    },
+    {
+      "listing_id": 1234567891,
+      "user_id": 5678902,
+      "shop_id": 13579246,
+      "title": "Vintage Brass Desk Lamp, 1970s Adjustable Arm",
+      "description": "Original 1970s brass desk lamp with adjustable arm, rewired and tested.",
+      "state": "active",
+      "quantity": 1,
+      "url": "https://www.etsy.com/listing/1234567891/vintage-brass-desk-lamp-1970s",
+      "num_favorers": 89,
+      "listing_type": "physical",
+      "price": {
+        "amount": 8250,
+        "divisor": 100,
+        "currency_code": "USD"
+      },
+      "who_made": "someone_else",
+      "when_made": "1970s",
+      "is_supply": false,
+      "tags": ["vintage lamp", "brass", "desk lamp"]
+    }
+  ]
+}

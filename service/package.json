@@ -1,0 +1,34 @@
+{
+  "name": "@northcinder/service",
+  "version": "0.1.0",
+  "description": "Buyer-run NorthCinder aggregation engine: store orchestration, deterministic ranking API, and merchant trust",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "engines": { "node": ">=20" },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "start": "node dist/main.js",
+    "trust-ingest": "node dist/trust-ingest-main.js"
+  },
+  "dependencies": {
+    "@northcinder/adapter-amazon": "workspace:*",
+    "@northcinder/adapter-kit": "workspace:*",
+    "@northcinder/adapter-ebay": "workspace:*",
+    "@northcinder/adapter-etsy": "workspace:*",
+    "@northcinder/adapter-shopify": "workspace:*",
+    "@northcinder/adapter-woocommerce": "workspace:*",
+    "@northcinder/protocol": "workspace:*",
+    "@hono/node-server": "^1.19.15",
+    "hono": "^4.13.2",
+    "zod": "^4.1.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

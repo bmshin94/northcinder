@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 90" role="img" aria-label="northcinder mark">
+  <title>northcinder mark — checked ledger</title>
+  <defs>
+    <!--
+      Construction: one continuous polyline, constant-width stroke (never tapered),
+      round joins/caps. Five vertices, in order:
+        (18,72) foot        -- base of the bracket foot
+        (18,50) corner      -- the itemized-bracket corner (90° turn)
+        (42,50) rule end    -- the ledger rule / short "row" arm
+        (47,65) check vertex-- short dip that begins the checkmark
+        (83,19) check tip   -- long rising stroke: the checkmark's dominant sweep
+      Reading: an "L" ledger/bracket corner (foot -> corner -> rule end) resolves
+      directly into a checkmark's short-then-long strokes (rule end -> vertex -> tip).
+      One unbroken line, two readings at once: an itemized bracket AND a check.
+    -->
+    <path id="northcinder-mark-path"
+          d="M18,72 L18,50 L42,50 L47,65 L83,19"
+          fill="none"
+          stroke-width="15"
+          stroke-linecap="round"
+          stroke-linejoin="round" />
+  </defs>
+
+  <!-- monochrome-capable version: reproduces in a single ink color (currentColor) -->
+  <g transform="translate(0,0)">
+    <use href="#northcinder-mark-path" color="#1A1A17" stroke="currentColor" />
+  </g>
+
+  <!-- one-accent version: the same construction in --verified, the single accent -->
+  <g transform="translate(120,0)">
+    <use href="#northcinder-mark-path" stroke="#1F7A5C" />
+  </g>
+</svg>

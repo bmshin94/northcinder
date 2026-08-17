@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 100" role="img" aria-label="NorthCinder app icon, light and dark tiles">
+  <title>NorthCinder app icon — light + dark tile</title>
+  <defs>
+    <path id="northcinder-mark-path-tile"
+          d="M18,72 L18,50 L42,50 L47,65 L83,19"
+          fill="none"
+          stroke-width="15"
+          stroke-linecap="round"
+          stroke-linejoin="round" />
+
+    <!-- contact shadow lives ONLY on the tile layer, never baked into the mark -->
+    <filter id="tile-contact-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="1.5" stdDeviation="1.6" flood-color="#1A1A17" flood-opacity="0.16" />
+    </filter>
+  </defs>
+
+  <!-- LIGHT tile: --paper background, --verified mark, 65% width / 55% height fill, optically centered -->
+  <g transform="translate(0,0)">
+    <rect x="0" y="0" width="100" height="100" rx="22" fill="#FBFAF7" filter="url(#tile-contact-shadow)" />
+    <g transform="translate(8.969,13.031) scale(0.8125)">
+      <use href="#northcinder-mark-path-tile" stroke="#1F7A5C" />
+    </g>
+  </g>
+
+  <!-- DARK tile: --ink (dark-mode paper) background, dark-mode --verified mark -->
+  <g transform="translate(120,0)">
+    <rect x="0" y="0" width="100" height="100" rx="22" fill="#14140F" filter="url(#tile-contact-shadow)" />
+    <g transform="translate(8.969,13.031) scale(0.8125)">
+      <use href="#northcinder-mark-path-tile" stroke="#4FB48C" />
+    </g>
+  </g>
+</svg>

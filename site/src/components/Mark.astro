@@ -1,0 +1,28 @@
+---
+// The northcinder mark: one continuous stroke reading as both an itemized ledger
+// bracket and a checkmark. Source of truth: docs/brand/mark.svg.
+interface Props {
+  size?: number;
+  color?: string;
+}
+const { size = 20, color = 'var(--verified)' } = Astro.props;
+---
+
+<svg
+  width={size}
+  height={size}
+  viewBox="8 8 88 76"
+  fill="none"
+  xmlns="http://www.w3.org/2000/svg"
+  role="img"
+  aria-label="NorthCinder mark"
+>
+  <path
+    d="M18,72 L18,50 L42,50 L47,65 L83,19"
+    fill="none"
+    stroke={color}
+    stroke-width="15"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+</svg>

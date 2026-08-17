@@ -1,0 +1,90 @@
+/* NorthCinder marketing design tokens and shared layout. */
+:root {
+  --paper: #FBFAF7;
+  --ink: #1A1A17;
+  --ink-2: #57544C;
+  --line: #E6E2D9;
+  --surface: #FFFFFF;
+  --verified: #1F7A5C;
+  --verified-tint: #E7F1EC;
+  --flag: #9C4A1C;
+  --flag-tint: #F5E9E0;
+  --nav-surface: rgba(251, 250, 247, 0.94);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+.mono { font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; font-variant-numeric: tabular-nums; }
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+a { color: inherit; }
+img, svg { display: block; max-width: 100%; }
+.skip-link {
+  position: fixed;
+  z-index: 100;
+  top: 8px;
+  left: 8px;
+  transform: translateY(-160%);
+  background: var(--ink);
+  color: var(--paper);
+  border-radius: 6px;
+  padding: 10px 14px;
+}
+.skip-link:focus { transform: translateY(0); }
+:focus-visible { outline: 3px solid var(--verified); outline-offset: 3px; }
+main:focus { outline: none; }
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.hero-grid > *, .feature-row > *, .arow > * { min-width: 0; }
+.eyebrow {
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--verified);
+}
+
+@media (max-width: 480px) {
+  .wrap { padding-inline: 18px; }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #151713;
+    --ink: #f4f1e8;
+    --ink-2: #bcb8ad;
+    --line: #3c4038;
+    --surface: #1d201b;
+    --verified: #67c49d;
+    --verified-tint: #1d3b2f;
+    --flag: #f0a06d;
+    --flag-tint: #3e2b21;
+    --nav-surface: rgba(21, 23, 19, 0.94);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

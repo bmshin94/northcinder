@@ -1,0 +1,112 @@
+import { z } from "zod";
+import {
+  AgentObservedAcquisitionSchema,
+  AvailabilitySchema,
+  MoneySchema,
+  SearchQuerySchema,
+  TrustLevelSchema,
+} from "./core.js";
+
+/**
+ * The buyer's brief (buyer brief): a deterministic decision artifact composed by CODE
+ * from ranked results — never model-generated (safety contract law). It answers, honestly:
+ * which few offers are worth the buyer's attention (finalists), WHY each one
+ * given the USER's criteria, what each finalist gives up vs the others
+ * (tradeoffs), where every data cell came from (provenance), what was rejected
+ * and by which criteria, and which registered stores actually answered
+ * (coverage — silent skipping forbidden).
+ */
+
+/** Honest per-store coverage status. Derived from the service's StoreStatus. */
+export const CoverageStatusSchema = z.enum(["searched", "blocked", "not_configured", "error"]);
+export type CoverageStatus = z.infer<typeof CoverageStatusSchema>;
+
+/**
+ * One entry per REGISTERED store — successes, blocks, and misconfigurations
+ * alike. A store that was skipped or failed appears here saying so; it is
+ * never silently absent.
+ */
+export const CoverageEntrySchema = z.object({
+  store: z.string().min(1),
+  status: CoverageStatusSchema,
+  /** Offers this store contributed (0 for any non-searched status). */
+  offerCount: z.int().nonnegative(),
+  /** The store's own error message, for non-searched statuses. */
+  detail: z.string().min(1).optional(),
+});
+export type CoverageEntry = z.infer<typeof CoverageEntrySchema>;
+
+/**
+ * Provenance for one data cell of a finalist row: where the value came from
+ * (the offer's source URL, or a trust-signal source) and when it was fetched
+ * (the offer's `fetchedAt` stamp, when the store adapter recorded one).
+ */
+export const ProvenanceCellSchema = z.object({
+  source: z.string().min(1),
+  fetchedAt: z.iso.datetime().optional(),
+});
+export type ProvenanceCell = z.infer<typeof ProvenanceCellSchema>;
+
+export const TradeoffDimensionSchema = z.enum(["price", "delivery", "trust", "spec"]);
+export type TradeoffDimension = z.infer<typeof TradeoffDimensionSchema>;
+
+/** A computed delta vs the OTHER finalists — never prose invented by a model. */
+export const TradeoffSchema = z.object({
+  dimension: TradeoffDimensionSchema,
+  detail: z.string().min(1),
+});
+export type Tradeoff = z.infer<typeof TradeoffSchema>;
+
+export const BriefFinalistSchema = z.object({
+  /** 1-based position, inherited verbatim from the neutrality ranking. */
+  rank: z.int().positive(),
+  offerId: z.string().min(1),
+  sourceStore: z.string().min(1),
+  title: z.string().min(1),
+  /** Canonical product page URL (also the provenance source for offer cells). */
+  url: z.url(),
+  merchant: z.object({ id: z.string().min(1), name: z.string().min(1) }),
+  price: MoneySchema,
+  availability: AvailabilitySchema,
+  /** Promised delivery date, when the store states one. */
+  deliveryBy: z.iso.date().optional(),
+  /** Merchant trust level, when a trust signal was available. */
+  trustLevel: TrustLevelSchema.optional(),
+  /** Paid placement badge — always carried, never re-ranked upward. */
+  sponsored: z.boolean(),
+  /** Browser-agent provenance when this row was reported rather than independently verified. */
+  acquisition: AgentObservedAcquisitionSchema.optional(),
+  /** Why THIS offer, phrased against the USER's criteria — derived deterministically from reasons[]. */
+  whyThis: z.array(z.string().min(1)).min(1),
+  /** Computed deltas vs the other finalists (price/delivery/trust/spec). */
+  tradeoffs: z.array(TradeoffSchema),
+  /** Per-cell provenance, keyed by cell name (title, price, availability, delivery, trust). */
+  provenance: z.record(z.string(), ProvenanceCellSchema),
+});
+export type BriefFinalist = z.infer<typeof BriefFinalistSchema>;
+
+/** Rejected appendix row: what was considered and which criteria eliminated it. */
+export const RejectedOfferSchema = z.object({
+  offerId: z.string().min(1),
+  sourceStore: z.string().min(1),
+  title: z.string().min(1),
+  /** The eliminating criteria, verbatim-derived from the ranking reasons. */
+  eliminatedBy: z.array(z.string().min(1)).min(1),
+});
+export type RejectedOffer = z.infer<typeof RejectedOfferSchema>;
+
+export const BuyersBriefSchema = z.object({
+  /** The search this brief was composed from (search_products searchId). */
+  searchId: z.string().min(1),
+  /** The exact post-merge criteria the ranking used (interpretedQuery.criteria). */
+  query: SearchQuerySchema,
+  /** ≤5 finalists, ranking order preserved. Fewer if fewer qualify — NEVER padded. */
+  finalists: z.array(BriefFinalistSchema).max(5),
+  /** Everything considered but not a finalist, with the eliminating criteria. */
+  rejected: z.array(RejectedOfferSchema),
+  /** One entry per registered store. Silent skipping forbidden. */
+  coverage: z.array(CoverageEntrySchema),
+  /** Total ranked offers the brief was composed from (finalists + rejected). */
+  offersConsidered: z.int().nonnegative(),
+});
+export type BuyersBrief = z.infer<typeof BuyersBriefSchema>;

@@ -1,0 +1,49 @@
+{
+  "manifest_version": "0.3",
+  "name": "northcinder",
+  "display_name": "NorthCinder",
+  "version": "0.1.0",
+  "description": "NorthCinder is a buyer-loyal shopping agent: criteria search, deterministic ranking, local mandate-gated checkout, price watches, and an audit trail for MCP hosts.",
+  "long_description": "NorthCinder is an open MCP client that shops across stores in your own accounts and ranks purely on your stated criteria plus a merchant trust signal — never on ad spend. Sponsored offers are labeled and always rank below organic ones. Every purchase requires a per-purchase signed mandate you explicitly approve out of band; an agent can never self-approve a purchase.",
+  "author": {
+    "name": "NorthCinder"
+  },
+  "license": "MIT",
+  "keywords": ["shopping", "commerce", "mcp", "neutral-ranking", "price-watch"],
+  "server": {
+    "type": "node",
+    "entry_point": "server/main.bundle.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server/main.bundle.js"],
+      "env": {
+        "NORTHCINDER_SERVICE_URL": "${user_config.serviceUrl}",
+        "NORTHCINDER_CLIENT_KEY": "${user_config.clientKey}",
+        "NORTHCINDER_CONFIG_DIR": "${user_config.configDir}"
+      }
+    }
+  },
+  "user_config": {
+    "serviceUrl": {
+      "type": "string",
+      "title": "Your NorthCinder engine URL",
+      "description": "Base URL of the NorthCinder engine you run (local default: http://127.0.0.1:8790). The repository owner operates no endpoint.",
+      "required": true,
+      "default": "http://127.0.0.1:8790"
+    },
+    "clientKey": {
+      "type": "string",
+      "title": "Your NorthCinder engine key",
+      "description": "Buyer-generated Bearer key for your NorthCinder engine (at least 16 characters). This is not an AI model-provider token.",
+      "required": true,
+      "sensitive": true
+    },
+    "configDir": {
+      "type": "string",
+      "title": "Local config directory",
+      "description": "Where the mandate keypair, audit log, watches, orders, and profile are stored (0600, local-only). Defaults to your OS config directory.",
+      "required": false,
+      "default": "${HOME}/.config/northcinder"
+    }
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "name": "@northcinder/remote",
+  "version": "0.1.0",
+  "description": "Optional self-hosted NorthCinder read-only MCP bridge: search_products and get_trust_signal over Streamable HTTP, with no checkout or private local-data tools",
+  "license": "MIT",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "keywords": ["northcinder", "mcp", "shopping", "remote"],
+  "publishConfig": { "access": "public" },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "northcinder-mcp-remote": "./dist/main.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.map"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@northcinder/adapter-kit": "workspace:*",
+    "@northcinder/brief": "workspace:*",
+    "@northcinder/profile": "workspace:*",
+    "@northcinder/protocol": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^4.1.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

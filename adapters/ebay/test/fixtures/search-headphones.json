@@ -1,0 +1,80 @@
+{
+  "href": "https://api.sandbox.ebay.com/buy/browse/v1/item_summary/search?q=wireless+headphones&limit=3",
+  "total": 2,
+  "limit": 3,
+  "offset": 0,
+  "itemSummaries": [
+    {
+      "itemId": "v1|110552649522|410108227370",
+      "title": "Sony WH-1000XM5 Wireless Noise Canceling Headphones - Black",
+      "leafCategoryIds": ["112529"],
+      "image": {
+        "imageUrl": "https://i.sandbox.ebayimg.com/images/g/abcd/s-l225.jpg"
+      },
+      "price": {
+        "value": "248.00",
+        "currency": "USD"
+      },
+      "itemHref": "https://api.sandbox.ebay.com/buy/browse/v1/item/v1%7C110552649522%7C410108227370",
+      "seller": {
+        "username": "soundgear-outlet",
+        "feedbackPercentage": "99.6",
+        "feedbackScore": 18342
+      },
+      "condition": "New",
+      "conditionId": "1000",
+      "shippingOptions": [
+        {
+          "shippingCostType": "FIXED",
+          "shippingCost": {
+            "value": "0.00",
+            "currency": "USD"
+          }
+        }
+      ],
+      "buyingOptions": ["FIXED_PRICE"],
+      "itemWebUrl": "https://sandbox.ebay.com/itm/110552649522",
+      "itemLocation": { "postalCode": "952**", "country": "US" },
+      "adultOnly": false,
+      "legacyItemId": "110552649522",
+      "availableCoupons": false,
+      "topRatedBuyingExperience": true,
+      "priorityListing": false,
+      "listingMarketplaceId": "EBAY_US"
+    },
+    {
+      "itemId": "v1|110552649523|0",
+      "title": "Bose QuietComfort 45 Bluetooth Wireless Headphones - Refurbished",
+      "image": {
+        "imageUrl": "https://i.sandbox.ebayimg.com/images/g/efgh/s-l225.jpg"
+      },
+      "price": {
+        "value": "179.95",
+        "currency": "USD"
+      },
+      "seller": {
+        "username": "audio-renew",
+        "feedbackPercentage": "98.9",
+        "feedbackScore": 5210
+      },
+      "condition": "Certified - Refurbished",
+      "conditionId": "2000",
+      "shippingOptions": [
+        {
+          "shippingCostType": "FIXED",
+          "shippingCost": {
+            "value": "5.99",
+            "currency": "USD"
+          }
+        }
+      ],
+      "buyingOptions": ["FIXED_PRICE"],
+      "itemWebUrl": "https://sandbox.ebay.com/itm/110552649523",
+      "itemLocation": { "postalCode": "600**", "country": "US" },
+      "adultOnly": false,
+      "legacyItemId": "110552649523",
+      "priorityListing": false,
+      "listingMarketplaceId": "EBAY_US"
+    }
+  ]
+}

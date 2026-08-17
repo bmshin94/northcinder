@@ -1,0 +1,19 @@
+---
+interface Props {
+  l: string;
+  r: string;
+}
+const { l, r } = Astro.props;
+---
+
+<div class="mini-row">
+  <span class="l">{l}</span>
+  <span class="r mono">{r}</span>
+</div>
+
+<style>
+  .mini-row { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); }
+  .mini-row:first-child { border-top: none; }
+  .mini-row .l { color: var(--ink-2); }
+  .mini-row .r { font-weight: 600; }
+</style>

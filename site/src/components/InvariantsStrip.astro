@@ -1,0 +1,46 @@
+---
+// Verbatim from README.md "Invariants (spec §4 — enforced in code, not policy)".
+const invariants = [
+  { n: '01', p: 'Ranking inputs are never paid-for — no affiliate params exist anywhere.' },
+  { n: '02', p: 'Sponsored is always labeled and always ranked below every organic offer.' },
+  { n: '03', p: 'No purchase without a per-purchase signed mandate.' },
+  { n: '04', p: 'Every recommendation carries machine-readable reasons, persisted locally.' },
+  { n: '05', p: 'Unknown merchants carry a trust signal or a flag — never silently trusted.' },
+  { n: '06', p: 'Raw card credentials never exist in this codebase.' },
+];
+---
+
+<section class="invariants">
+  <div class="wrap">
+    <h2>Enforced in code, not policy</h2>
+    <div class="inv-grid">
+      {invariants.map((i) => (
+        <div class="inv-cell">
+          <div class="n mono">{i.n}</div>
+          <p>{i.p}</p>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>
+
+<style>
+  .invariants { padding: 56px 0; background: var(--surface); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .invariants h2 {
+    text-align: center;
+    font-size: 12px;
+    font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-2);
+    margin: 0 0 28px;
+  }
+  .inv-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .inv-cell { background: var(--surface); padding: 22px 20px; }
+  .inv-cell .n { font-size: 11px; color: var(--verified); font-weight: 700; margin-bottom: 8px; }
+  .inv-cell p { margin: 0; font-size: 13px; color: var(--ink); }
+
+  @media (max-width: 720px) {
+    .inv-grid { grid-template-columns: 1fr; }
+  }
+</style>

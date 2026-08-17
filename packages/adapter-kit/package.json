@@ -1,0 +1,34 @@
+{
+  "name": "@northcinder/adapter-kit",
+  "version": "0.1.0",
+  "description": "NorthCinder adapter toolkit: budgeted HTTP (timeout + bounded jittered retry + body cap), concurrency limiter, float-free money parsing",
+  "license": "MIT",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "keywords": ["northcinder", "commerce", "adapter"],
+  "publishConfig": { "access": "public" },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.map"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@northcinder/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}
