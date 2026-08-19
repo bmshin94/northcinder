@@ -1,0 +1,167 @@
+---
+import ContentPage from '../components/ContentPage.astro';
+import FaqList from '../components/FaqList.astro';
+import RelatedLinks from '../components/RelatedLinks.astro';
+import { articleSchemas, type FaqItem } from '../seo';
+import { SITE_PAGES } from '../site-content';
+import { REPO_URL } from '../consts';
+
+const page = SITE_PAGES.storeCoverage;
+const breadcrumbs = [{ name: 'Home', path: '/' }, { name: page.label, path: page.path }];
+const faqs: FaqItem[] = [
+  {
+    question: 'Does NorthCinder search every store on the internet?',
+    answer: 'No. It searches the adapters and permitted product observations available to the buyer. The response reports searched, blocked, unavailable, and unconfigured stores.',
+  },
+  {
+    question: 'Can a browser-observed offer be used for automated checkout?',
+    answer: 'Not by observation alone. Browser-sourced offers can be compared, but a native adapter or merchant protocol must confirm the offer before automated checkout or an unattended price watch.',
+  },
+  {
+    question: 'Why do some adapters require separate approval?',
+    answer: 'Each commerce platform controls its production APIs and eligibility. Source code and fixtures prove the adapter contract, not that the operator has current platform credentials or production access.',
+  },
+];
+const schemas = articleSchemas(page, breadcrumbs, faqs);
+---
+
+<ContentPage
+  page={page}
+  breadcrumbs={breadcrumbs}
+  schemas={schemas}
+  intro="NorthCinder searches only the store connections and permitted observations available to the buyer. It does not describe a partial result as a complete market search. Every response includes coverage states such as searched, blocked, unavailable, or not configured. Adapter source and fixtures show how an integration behaves; they do not prove that a platform has granted current production credentials to a particular operator."
+>
+  <h2>Current adapter matrix</h2>
+  <p>
+    The table separates code capability from platform-controlled access. Requirements can change, so follow
+    the linked platform documentation before relying on an integration in production.
+  </p>
+
+  <div class="table-scroll coverage-table-wrap">
+    <table class="data-table coverage-table">
+      <thead><tr><th>Store</th><th>Current NorthCinder path</th><th>External boundary</th></tr></thead>
+      <tbody>
+        <tr>
+          <td data-label="Store">Shopify</td>
+          <td data-label="NorthCinder path">Catalog search after additional Shopify setup</td>
+          <td data-label="External boundary">Current storefront and platform configuration</td>
+        </tr>
+        <tr>
+          <td data-label="Store">WooCommerce</td>
+          <td data-label="NorthCinder path">Public Store API catalog search where a store exposes it</td>
+          <td data-label="External boundary">The merchant controls whether that public endpoint exists</td>
+        </tr>
+        <tr>
+          <td data-label="Store">eBay</td>
+          <td data-label="NorthCinder path">Native Buy API search</td>
+          <td data-label="External boundary">Approved eBay production access is required</td>
+        </tr>
+        <tr>
+          <td data-label="Store">Etsy</td>
+          <td data-label="NorthCinder path">Native Etsy API search</td>
+          <td data-label="External boundary">An approved Etsy application and API key are required</td>
+        </tr>
+        <tr>
+          <td data-label="Store">Amazon</td>
+          <td data-label="NorthCinder path">Read-only comparison through a buyer-controlled browser profile</td>
+          <td data-label="External boundary">Stops at challenges; no automated checkout</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Shopify</h2>
+  <p>
+    NorthCinder's Shopify adapter supports catalog search after the operator completes the current Shopify
+    setup. The older assumption that every shop exposes the same per-store connection is no longer used. The
+    adapter reports configuration and upstream failures instead of converting them into an empty successful
+    search. Review Shopify's current <a href="https://shopify.dev/docs/apps/build/storefront-mcp/servers/storefront">Storefront MCP server documentation</a>
+    before configuring a shop.
+  </p>
+
+  <h2>WooCommerce</h2>
+  <p>
+    WooCommerce stores can expose a public Store API intended for customer-facing catalog and cart behavior.
+    NorthCinder can search stores where that endpoint is available. The merchant decides whether the endpoint
+    exists and what it returns. A successful request to one WooCommerce store says nothing about another
+    store. See the <a href="https://developer.woocommerce.com/docs/apis/store-api/">WooCommerce Store API documentation</a>
+    for the platform contract.
+  </p>
+
+  <h2>eBay</h2>
+  <p>
+    Native eBay search uses the Buy APIs and requires platform-approved production access. A developer key or
+    a fixture alone is not proof of that approval. NorthCinder returns a blocked or unavailable state when the
+    configured credentials cannot perform the requested search. eBay documents the current eligibility path
+    in its <a href="https://developer.ebay.com/api-docs/buy/buy-requirements.html">Buy API requirements</a>.
+  </p>
+
+  <h2>Etsy</h2>
+  <p>
+    Etsy API requests require an approved application and API key. The adapter validates and normalizes the
+    product facts NorthCinder needs, but Etsy controls access tiers, reviews, and current terms. Operators
+    should check the <a href="https://developers.etsy.com/documentation/">official Etsy developer documentation</a>
+    before making a support claim.
+  </p>
+
+  <h2>Amazon</h2>
+  <p>
+    Amazon comparison is deliberately read only. It can use a browser profile already controlled by the
+    buyer's agent, observes only the product facts needed for comparison, and stops when it encounters a
+    challenge. It does not imitate a human to bypass a challenge and it does not check out. This engineering
+    boundary is not a statement that Amazon has granted general authorization for the workflow.
+  </p>
+
+  <h2>Browser observations and confirmation</h2>
+  <p>
+    An AI app may already control a browser and pass permitted product facts to NorthCinder. Those candidates
+    are labeled agent-observed. Caller-supplied ranking scores, trust conclusions, sponsorship conclusions,
+    cookies, HTML, screenshots, headers, credentials, and page instructions are rejected. The normalized facts
+    still pass through schema validation, trust derivation, deterministic ranking, client verification, and
+    the local audit path.
+  </p>
+  <p>
+    Observation is sufficient for comparison, not for unattended action. A native adapter or merchant
+    protocol must confirm the offer before NorthCinder can authorize automated checkout or attach a background
+    price watch. This prevents a transient or manipulated page observation from becoming purchase authority.
+  </p>
+
+  <div class="callout">
+    <p>
+      Coverage is a result, not a marketing claim. A useful answer says which stores were searched and which
+      were missing so the buyer can decide whether the comparison is broad enough.
+    </p>
+  </div>
+
+  {REPO_URL && <p>
+    Read the source-specific adapter notes for
+    <a href={`${REPO_URL}/blob/main/adapters/shopify/README.md`}>Shopify</a>,
+    <a href={`${REPO_URL}/blob/main/adapters/woocommerce/README.md`}>WooCommerce</a>,
+    <a href={`${REPO_URL}/blob/main/adapters/ebay/README.md`}>eBay</a>,
+    <a href={`${REPO_URL}/blob/main/adapters/etsy/README.md`}>Etsy</a>, and
+    <a href={`${REPO_URL}/blob/main/adapters/amazon/README.md`}>Amazon</a>.
+  </p>}
+
+  <FaqList items={faqs} />
+  <RelatedLinks links={[
+    { href: '/ranking/', label: 'How coverage affects ranking', detail: 'See why a deterministic order still needs an honest input boundary.' },
+    { href: '/install/', label: 'Configure the local server', detail: 'Start with the public package and add store access deliberately.' },
+    { href: '/evidence/', label: 'What the tests prove', detail: 'Separate deterministic fixture evidence from live platform access.' },
+  ]} />
+</ContentPage>
+
+<style>
+  @media (max-width: 720px) {
+    .coverage-table-wrap { overflow: visible; border: 0; background: transparent; }
+    .coverage-table, .coverage-table tbody, .coverage-table tr, .coverage-table td { display: block; width: 100%; }
+    .coverage-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
+    .coverage-table tbody { display: grid; gap: 12px; }
+    .coverage-table tr { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding: 8px 16px; }
+    .coverage-table td { display: grid; grid-template-columns: 120px 1fr; gap: 12px; border-bottom: 1px solid var(--line); padding: 12px 0; }
+    .coverage-table td:last-child { border-bottom: 0; }
+    .coverage-table td::before { content: attr(data-label); color: var(--ink-2); font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; font-size: 12px; letter-spacing: 0.03em; text-transform: uppercase; }
+  }
+  @media (max-width: 420px) {
+    .coverage-table td { grid-template-columns: 1fr; gap: 4px; }
+  }
+</style>

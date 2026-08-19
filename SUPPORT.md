@@ -1,6 +1,6 @@
 # Support
 
-Use [GitHub Issues](https://github.com/jdshfhds/northcinder/issues) for reproducible bugs, documentation
+Use [GitHub Issues](https://github.com/cinderline/northcinder/issues) for reproducible bugs, documentation
 problems, and focused feature requests.
 
 Before opening an issue:

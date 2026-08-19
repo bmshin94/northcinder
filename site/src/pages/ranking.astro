@@ -1,0 +1,126 @@
+---
+import ContentPage from '../components/ContentPage.astro';
+import FaqList from '../components/FaqList.astro';
+import RelatedLinks from '../components/RelatedLinks.astro';
+import { articleSchemas, type FaqItem } from '../seo';
+import { SITE_PAGES } from '../site-content';
+import { REPO_URL } from '../consts';
+
+const page = SITE_PAGES.ranking;
+const breadcrumbs = [{ name: 'Home', path: '/' }, { name: page.label, path: page.path }];
+const faqs: FaqItem[] = [
+  {
+    question: 'Can a merchant or affiliate payment improve a NorthCinder ranking?',
+    answer: 'No. The ranker has no seller-payment or affiliate parameter. Sponsored offers are labeled and placed in a lower tier than every organic offer.',
+  },
+  {
+    question: 'Does deterministic ranking prove that a store catalog is complete?',
+    answer: 'No. It proves the ordering over the disclosed inputs. NorthCinder reports coverage gaps, but it cannot prove that an upstream store returned every relevant offer.',
+  },
+  {
+    question: 'Can I see why an offer won or lost?',
+    answer: 'Yes. Ranked offers carry machine-readable reasons, requirement outcomes, score contributions, trust evidence, sponsorship state, and provenance information.',
+  },
+];
+const schemas = articleSchemas(page, breadcrumbs, faqs);
+---
+
+<ContentPage
+  page={page}
+  breadcrumbs={breadcrumbs}
+  schemas={schemas}
+  intro="NorthCinder ranks the offers it receives against the buyer's stated requirements and preferences. Hard requirements filter first. The remaining organic offers receive deterministic score contributions for price, specification match, delivery, availability, merchant trust, and stated ethics preferences. Sponsored offers are labeled and placed below every organic result; payment never adds ranking points."
+>
+  <h2>Hard requirements come first</h2>
+  <p>
+    A shopping brief can contain must-have attributes, a budget, a delivery deadline, and other requirements
+    that should not be traded away for a higher soft score. NorthCinder evaluates those constraints before it
+    compares preferences. Offers that fail a hard requirement move into a rejected appendix with the failed
+    condition attached. They do not disappear from the explanation and they do not quietly compete with valid
+    offers.
+  </p>
+  <p>
+    Exact-money comparisons avoid floating-point shortcuts. Missing facts remain missing rather than being
+    converted into favorable assumptions. A seller's claim, an agent-observed product page, and a direct
+    adapter result retain different provenance so the explanation can say what was independently available
+    and what still needs confirmation.
+  </p>
+
+  <h2>Published score contributions</h2>
+  <p>
+    The ranker uses open weights that can be rerun over the same input. The values below describe the current
+    measured dimensions; the complete rules and tie-breaking behavior live in the ranking specification and
+    source.
+  </p>
+
+  <div class="table-scroll">
+    <table class="data-table">
+      <thead><tr><th>Dimension</th><th>What changes the score</th><th>Published effect</th></tr></thead>
+      <tbody>
+        <tr><td>Price</td><td>Relative price and budget compliance</td><td>Up to +40; over-budget penalty -25</td></tr>
+        <tr><td>Required specification</td><td>Match versus missing required attribute</td><td>+40 per measured must-have probe</td></tr>
+        <tr><td>Delivery</td><td>Meets versus misses the buyer's deadline</td><td>+25</td></tr>
+        <tr><td>Availability</td><td>In stock, preorder, or out of stock</td><td>+25 in stock; +10 over preorder</td></tr>
+        <tr><td>Merchant trust</td><td>Trusted, known, unknown, or flagged evidence</td><td>+10, +5, 0, or -40</td></tr>
+        <tr><td>Ethics preference</td><td>Matches a buyer-stated preference</td><td>+8</td></tr>
+        <tr><td>Sponsored</td><td>Store-supplied or synthetic demonstration flag</td><td>0 score points; lower ranking tier</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>
+    These weights are not a universal definition of the best product. They are a reproducible choice policy
+    applied to the buyer's brief. The ranking output includes the reasons and raw inputs needed for the client
+    to rerun that policy locally.
+  </p>
+
+  <h2>Sponsored offers cannot outrank organic offers</h2>
+  <p>
+    Sponsorship is handled as a tier and label, not a scoring bonus. An otherwise identical offer does not
+    gain score when its sponsored flag changes. The deterministic audit flips that flag across synthetic
+    offers and checks that none improves its rank, none changes its score, and none loses the required
+    de-prioritization reason. NorthCinder does not sell the placement.
+  </p>
+
+  <div class="callout">
+    <p>
+      The precise claim is "deterministic and auditable." NorthCinder does not claim that neutrality can be
+      proved across an incomplete or untruthful upstream catalog.
+    </p>
+  </div>
+
+  <h2>Reasons are part of the output contract</h2>
+  <p>
+    Every recommendation carries structured reasons such as a price advantage, a matched attribute, a missed
+    delivery requirement, or a merchant-trust contribution. The client persists those reasons with the local
+    audit record. This makes a recommendation inspectable later, even if the person disagrees with the
+    weights or corrects a preference.
+  </p>
+  <p>
+    Tie-breaking is deterministic as well. Reordering the incoming candidates cannot change the canonical
+    ranking. The committed neutrality audit runs 50 synthetic offer sets through five input shuffles each and
+    compares all 250 results with the canonical order.
+  </p>
+
+  <h2>What ranking verification does not prove</h2>
+  <p>
+    Client reranking verifies that the disclosed candidates were ordered by the published function. It does
+    not establish that a store returned its complete catalog, that a seller labeled sponsorship correctly,
+    that an agent-observed page is current, or that a merchant is safe beyond the evidence recorded. Coverage,
+    provenance, and trust therefore remain first-class output instead of being collapsed into a confident
+    headline.
+  </p>
+
+  {REPO_URL && <p>
+    Read the <a href={`${REPO_URL}/blob/main/docs/RANKING.md`}>complete ranking specification</a>, the
+    <a href={`${REPO_URL}/blob/main/packages/protocol/src/ranking/rank.ts`}>ranker source</a>, and the
+    <a href={`${REPO_URL}/blob/main/docs/NEUTRALITY-AUDIT.md`}>generated neutrality audit</a>.
+  </p>}
+
+  <FaqList items={faqs} />
+  <RelatedLinks links={[
+    { href: '/evidence/', label: 'Inspect the evidence', detail: 'Read the dated shuffle, sponsorship, and weight-probe results.' },
+    { href: '/store-coverage/', label: 'See coverage limits', detail: 'Understand what the ranker could and could not receive.' },
+    { href: '/checkout-safety/', label: 'Separate ranking from purchase', detail: 'Follow the approval and single-use mandate boundary.' },
+  ]} />
+</ContentPage>

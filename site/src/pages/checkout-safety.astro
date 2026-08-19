@@ -1,0 +1,124 @@
+---
+import ContentPage from '../components/ContentPage.astro';
+import FaqList from '../components/FaqList.astro';
+import RelatedLinks from '../components/RelatedLinks.astro';
+import { articleSchemas, type FaqItem } from '../seo';
+import { SITE_PAGES } from '../site-content';
+import { REPO_URL } from '../consts';
+
+const page = SITE_PAGES.checkoutSafety;
+const breadcrumbs = [{ name: 'Home', path: '/' }, { name: page.label, path: page.path }];
+const faqs: FaqItem[] = [
+  {
+    question: 'Can a search or price watch authorize a purchase?',
+    answer: 'No. Search and watches do not produce a purchase mandate. Automated checkout needs a separate approval for the exact offer, quantity, total cap, and order fingerprint.',
+  },
+  {
+    question: 'Can an approved mandate be reused?',
+    answer: 'No. NorthCinder burns the mandate nonce before the checkout rail runs. The file-backed ledger uses an exclusive cross-process creation boundary so replay is refused across restarts and concurrent processes.',
+  },
+  {
+    question: 'Does NorthCinder store raw card details?',
+    answer: 'No. Raw card fields are rejected. An automated rail can receive an opaque delegated payment token, or NorthCinder can return an unfetched cart URL for the buyer to finish in their own browser.',
+  },
+];
+const schemas = articleSchemas(page, breadcrumbs, faqs);
+---
+
+<ContentPage
+  page={page}
+  breadcrumbs={breadcrumbs}
+  schemas={schemas}
+  intro="NorthCinder treats search, recommendation, approval, and checkout as separate events. A recommendation cannot buy anything. Before an automated rail can run, the buyer must review the exact offer, quantity, known total, hard spending cap, and fingerprint through a buyer-local approval surface. Approval signs that payload once. A cross-process nonce ledger then prevents the same mandate from being used again."
+>
+  <h2>Search is not purchase authority</h2>
+  <p>
+    Shopping agents often combine discovery and action in one conversation, but the permissions should not be
+    combined. NorthCinder's search tools return offers and explanations. Price watches can record a target and
+    notify when it is met. Neither path issues a purchase mandate, and an architectural test keeps watch code
+    from importing a checkout path.
+  </p>
+  <p>
+    When a buyer chooses an offer, the client creates a pending authorization request. That request is a
+    frozen copy of the offer and proposed purchase terms. Later changes to a search result, adapter response,
+    or conversation cannot redirect what the approval signs.
+  </p>
+
+  <h2>The approval receipt</h2>
+  <p>
+    The buyer-local approval page and the MCP approval flow show the same purchase tuple. Both use the same
+    verification function, so one surface cannot approve a weaker payload than the other. The visible receipt
+    includes the item, merchant, quantity, known price and shipping, unknown-tax warning when relevant, hard
+    cap, and an order fingerprint. Decline remains a direct, equal choice.
+  </p>
+
+  <div class="ledger-list">
+    <dl class="ledger-row"><dt>Offer</dt><dd>The exact source offer selected by the buyer</dd></dl>
+    <dl class="ledger-row"><dt>Quantity</dt><dd>The exact number of units being authorized</dd></dl>
+    <dl class="ledger-row"><dt>Hard cap</dt><dd>The maximum amount the checkout orchestration may accept</dd></dl>
+    <dl class="ledger-row"><dt>Fingerprint</dt><dd>A short cross-check for the payload shown on both approval surfaces</dd></dl>
+    <dl class="ledger-row"><dt>Decision</dt><dd>Approve once or decline without a purchase attempt</dd></dl>
+  </div>
+
+  <h2>What the signature binds</h2>
+  <p>
+    Approval produces a signed VerifiedMandate for the exact payload. The mandate carries a validity window,
+    the purchase terms, and a single-use nonce. Checkout verifies the signature and payload before it calls an
+    external rail. A modified offer ID, quantity, amount, merchant, or cap fails verification instead of being
+    treated as close enough.
+  </p>
+  <p>
+    The mandate is not a standing shopping budget and is not reusable permission for a store. When the buyer
+    wants a different item or quantity, NorthCinder creates a new authorization and requires another human
+    decision.
+  </p>
+
+  <h2>Replay protection happens before effects</h2>
+  <p>
+    The default local checkout wiring uses a file-backed nonce ledger. It claims the nonce with an exclusive
+    file creation operation before the checkout adapter runs. Two processes racing to use the same mandate do
+    not both pass. A restart does not clear the consumed record. If the rail later fails, the attempted mandate
+    remains consumed because retrying a money action with identical authority could duplicate the effect.
+  </p>
+
+  <div class="callout">
+    <p>
+      Single use trades automatic retry convenience for a smaller duplicate-purchase risk. A failed attempt
+      requires inspection and, when appropriate, a new buyer approval.
+    </p>
+  </div>
+
+  <h2>Payment data stays outside the codebase</h2>
+  <p>
+    NorthCinder rejects raw card fields at the MCP and checkout boundaries. A supported automated rail can use
+    an opaque delegated token created for the purchase. Otherwise, the result can be an unfetched cart URL for
+    the buyer to open and complete in an existing browser session. NorthCinder does not request browser
+    cookies, passwords, one-time codes, or card numbers.
+  </p>
+
+  <h2>Buyer-local does not mean invulnerable</h2>
+  <p>
+    The dashboard binds to loopback, uses tokenized approval links, applies a content-security policy, and
+    stores sensitive files with owner-only permissions. These controls do not protect local files from another
+    process that the buyer runs with arbitrary access as the same operating-system user. Separate OS accounts
+    provide a stronger boundary when a buyer needs isolation between an AI app and NorthCinder.
+  </p>
+  <p>
+    A configured checkout rail also remains subject to the merchant and payment provider's own behavior.
+    Mandate verification constrains what NorthCinder authorizes; it cannot guarantee an external merchant's
+    availability, taxes, fulfillment, refund policy, or final acceptance.
+  </p>
+
+  {REPO_URL && <p>
+    Inspect the <a href={`${REPO_URL}/tree/main/packages/checkout`}>checkout package</a>, the
+    <a href={`${REPO_URL}/blob/main/client/src/authorization.ts`}>authorization flow</a>, and the
+    <a href={`${REPO_URL}/blob/main/SECURITY.md`}>security boundary</a>.
+  </p>}
+
+  <FaqList items={faqs} />
+  <RelatedLinks links={[
+    { href: '/ranking/', label: 'See how offers are selected', detail: 'Ranking explains a choice but never grants purchase authority.' },
+    { href: '/install/', label: 'Run NorthCinder locally', detail: 'Create buyer-owned configuration and connect the MCP server.' },
+    { href: '/evidence/', label: 'Review deterministic evidence', detail: 'Inspect what the committed audits prove and what they do not.' },
+  ]} />
+</ContentPage>

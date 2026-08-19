@@ -6,14 +6,14 @@ import { REPO_URL } from '../consts';
   <div class="wrap footer-inner">
     <span>
       Open, buyer-run software with no NorthCinder-operated service. Amazon is supported only via your
-      own logged-in session — see the honesty note.
+      own logged-in session. See the coverage notes.
     </span>
     <div class="footer-links">
-      {REPO_URL ? <>
-        <a href={`${REPO_URL}#readme`}>Docs</a>
-        <a href={REPO_URL}>GitHub</a>
-        <a href={`${REPO_URL}/blob/main/docs/RANKING.md`}>RANKING.md</a>
-      </> : <span class="mono">public source coordinates pending</span>}
+      <a href="/install/">Install</a>
+      <a href="/ranking/">Ranking</a>
+      <a href="/evidence/">Evidence</a>
+      <a href="/about/">About</a>
+      {REPO_URL ? <a href={REPO_URL}>GitHub</a> : <span class="mono">public source coordinates pending</span>}
     </div>
   </div>
 </footer>

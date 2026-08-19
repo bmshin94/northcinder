@@ -54,7 +54,7 @@ northcinder --version       Show the installed version
 ```
 
 The source code, full configuration guide, security boundary, and verification instructions are in
-the [NorthCinder repository](https://github.com/jdshfhds/northcinder).
+the [NorthCinder repository](https://github.com/cinderline/northcinder).
 
 ## License
 

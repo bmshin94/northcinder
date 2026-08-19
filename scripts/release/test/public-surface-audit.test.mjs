@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import {
   commitMetadataFindings,
@@ -21,6 +22,20 @@ test("rejects hidden tracked artifacts outside the explicit public exceptions", 
   assert.deepEqual(forbiddenPathFindings(["adapters/.gitkeep", "client/.private-state", ".github/workflows/private.yml"]), [
     "client/.private-state: internal-only or unreviewed public path is tracked",
     ".github/workflows/private.yml: internal-only or unreviewed public path is tracked",
+  ]);
+});
+
+test("allows only the reviewed GitHub files", () => {
+  const reviewed = [
+    ".github/FUNDING.yml",
+    ".github/ISSUE_TEMPLATE/bug-report.yml",
+    ".github/ISSUE_TEMPLATE/config.yml",
+    ".github/ISSUE_TEMPLATE/feature-proposal.yml",
+    ".github/pull_request_template.md",
+  ];
+  assert.deepEqual(forbiddenPathFindings(reviewed), []);
+  assert.deepEqual(forbiddenPathFindings([...reviewed, ".github/workflows/unreviewed.yml"]), [
+    ".github/workflows/unreviewed.yml: internal-only or unreviewed public path is tracked",
   ]);
 });
 
@@ -63,8 +78,10 @@ test("ordinary public prose has no private-process finding", () => {
 
 test("rejects token and local-operator-path material without storing a token fixture in source", () => {
   const token = "gh" + "p_" + "a".repeat(36);
-  const body = `${token}\n/mnt/c/Users/` + "Gamer/private.txt";
-  assert.equal(sensitiveTextFindings("fixture.txt", body).length, 2);
+  const localRoot = "/mnt/c/Users/synthetic-operator";
+  const localRootHash = createHash("sha256").update(localRoot.toLowerCase()).digest("hex");
+  const body = `${token}\n${localRoot}/private.txt`;
+  assert.equal(sensitiveTextFindings("fixture.txt", body, new Set([localRootHash])).length, 2);
 });
 
 test("allows empty examples and named test tokens but rejects an opaque assigned secret", () => {
@@ -94,9 +111,9 @@ test("release history may grow linearly from one sanitized noreply-authored root
     },
     {
       authorName: "NorthCinder maintainers",
-      authorEmail: "jdshfhds@users.noreply.github.com",
+      authorEmail: "150383880+cinderline@users.noreply.github.com",
       committerName: "NorthCinder maintainers",
-      committerEmail: "jdshfhds@users.noreply.github.com",
+      committerEmail: "150383880+cinderline@users.noreply.github.com",
       subject: "docs: improve the public README",
       body: "",
     },

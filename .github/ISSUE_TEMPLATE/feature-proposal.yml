@@ -1,0 +1,56 @@
+name: Feature proposal
+description: Propose a focused change to NorthCinder
+title: "proposal: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use Discussions for open-ended ideas. Use this form when the problem and proposed outcome are specific enough to evaluate as work.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What cannot be done today, and who encounters the problem?
+    validations:
+      required: true
+
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe observable behavior rather than an implementation preference.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Current workaround or alternatives
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Primary surface
+      options:
+        - Ranking, protocol, or merchant trust
+        - Store adapter
+        - Checkout or approval
+        - Client, dashboard, or audit trail
+        - Profiles, watches, or orders
+        - Packaging, setup, or documentation
+        - Other
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: contract
+    attributes:
+      label: Product contract
+      options:
+        - label: This proposal keeps seller payment out of ranking.
+          required: true
+        - label: This proposal does not bypass per-purchase human approval.
+          required: true
+        - label: This proposal does not introduce raw card handling or undisclosed telemetry.
+          required: true

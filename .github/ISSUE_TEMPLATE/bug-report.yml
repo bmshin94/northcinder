@@ -1,0 +1,67 @@
+name: Bug report
+description: Report a reproducible problem in NorthCinder
+title: "bug: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search existing issues first. Remove credentials, approval URLs, audit records, purchase data, and other private information before submitting.
+
+  - type: input
+    id: version
+    attributes:
+      label: NorthCinder version
+      description: Run `npx northcinder --version` or provide the commit SHA.
+      placeholder: 0.1.2
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Include your operating system, Node.js version, pnpm version if relevant, and MCP host.
+      placeholder: Windows 11 with WSL2, Node 24, ChatGPT Desktop
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Give the smallest sequence that reliably reproduces the problem.
+      placeholder: |
+        1. Run ...
+        2. Configure ...
+        3. Call ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+      description: Include a short, sanitized error excerpt if one is available.
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Add any other sanitized information that helps isolate the problem.
+
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Sensitive-data check
+      options:
+        - label: I removed credentials, tokens, approval links, browser profiles, audit data, mail, and purchase records.
+          required: true

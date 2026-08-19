@@ -18,9 +18,9 @@ for (const [label, readme] of [["packed README", packageReadme], ["root README",
   assert.doesNotMatch(readme, /npx brier-agent init/, `${label} must not send users to the former npm coordinate`);
 }
 assert.match(manifest.description, /buyer.*shopping agent/i);
-assert.equal(manifest.repository?.url, "git+https://github.com/jdshfhds/northcinder.git");
-assert.equal(manifest.homepage, "https://github.com/jdshfhds/northcinder#readme");
-assert.equal(manifest.bugs?.url, "https://github.com/jdshfhds/northcinder/issues");
+assert.equal(manifest.repository?.url, "git+https://github.com/cinderline/northcinder.git");
+assert.equal(manifest.homepage, "https://github.com/cinderline/northcinder#readme");
+assert.equal(manifest.bugs?.url, "https://github.com/cinderline/northcinder/issues");
 assert.equal(serviceManifest.private, true);
 assert.equal(serviceManifest.bin, undefined, "private service must not advertise unbuilt workspace bins");
 

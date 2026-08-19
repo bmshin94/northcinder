@@ -15,7 +15,7 @@ test("NorthCinder is the canonical public and workspace identity", () => {
   assert.equal(root.name, "northcinder-monorepo");
   assert.equal(launcher.name, "northcinder");
   assert.deepEqual(launcher.bin, { northcinder: "bin/northcinder.js" });
-  assert.equal(launcher.repository.url, "git+https://github.com/jdshfhds/northcinder.git");
+  assert.equal(launcher.repository.url, "git+https://github.com/cinderline/northcinder.git");
   assert.equal(client.name, "@northcinder/client");
   assert.equal(manifest.name, "northcinder");
   assert.equal(manifest.display_name, "NorthCinder");

@@ -7,11 +7,30 @@ import Feature from '../components/Feature.astro';
 import MiniRow from '../components/MiniRow.astro';
 import InvariantsStrip from '../components/InvariantsStrip.astro';
 import Footer from '../components/Footer.astro';
+import FaqList from '../components/FaqList.astro';
+import { homepageSchemas, type FaqItem } from '../seo';
+import { SITE_PAGES } from '../site-content';
+
+const faqs: FaqItem[] = [
+  {
+    question: 'What is NorthCinder?',
+    answer: 'NorthCinder is open-source MCP software that compares disclosed product offers against a buyer\'s brief, explains the ranking, reports store coverage, and requires a separate approval before automated checkout.',
+  },
+  {
+    question: 'Does NorthCinder sell sponsored placement?',
+    answer: 'No. Store-supplied or synthetic demonstration sponsorship stays labeled and below every organic result. Seller payment and affiliate data are not ranking inputs.',
+  },
+  {
+    question: 'Does the NorthCinder maintainer receive shopping data?',
+    answer: 'No. Buyers run the software. Searches, settings, profiles, orders, and local audit history are not returned to the repository maintainer.',
+  },
+];
 ---
 
 <Layout
-  title="NorthCinder — the buyer-loyal shopping agent"
-  description="NorthCinder compares configured stores against your brief, shows its reasons, and requires explicit approval before checkout. Deterministic and auditable, never provably neutral."
+  title={SITE_PAGES.home.title}
+  description={SITE_PAGES.home.description}
+  schemas={homepageSchemas(faqs)}
 >
   <Nav />
   <main id="main-content" tabindex="-1">
@@ -59,7 +78,7 @@ import Footer from '../components/Footer.astro';
         title="Orders, shipments, and return windows in one record."
         copy="Checkout records merge with deterministically parsed order, shipping, and return-window messages. Unattended live IMAP remains disabled until authenticated provider metadata exists; the local drop path is explicit."
       >
-        <MiniRow l="SHP-88213 — Rothy's" r="delivered" />
+        <MiniRow l="SHP-88213 · Rothy's" r="delivered" />
         <MiniRow l="UPS in transit" r="Jul 09" />
         <MiniRow l="Return by" r="Aug 05" />
         </Feature>
@@ -67,6 +86,11 @@ import Footer from '../components/Footer.astro';
     </section>
 
     <InvariantsStrip />
+    <section class="home-faq">
+      <div class="wrap">
+        <FaqList items={faqs} />
+      </div>
+    </section>
   </main>
   <Footer />
 </Layout>

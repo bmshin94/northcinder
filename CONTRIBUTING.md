@@ -8,7 +8,7 @@ review.
 You need Node.js 20 or later, Corepack, and Git.
 
 ```sh
-git clone https://github.com/jdshfhds/northcinder.git
+git clone https://github.com/cinderline/northcinder.git
 cd northcinder
 corepack pnpm install --frozen-lockfile
 corepack pnpm release:build
@@ -17,7 +17,7 @@ node northcinder/bin/northcinder.js init
 
 ## Before you start
 
-- Search [existing issues](https://github.com/jdshfhds/northcinder/issues) before opening a new one.
+- Search [existing issues](https://github.com/cinderline/northcinder/issues) before opening a new one.
 - For a substantial behavior or protocol change, open a focused proposal first.
 - Never include credentials, browser profiles, approval URLs, private mail, audit logs, or real
   purchase data in an issue, commit, fixture, or screenshot.

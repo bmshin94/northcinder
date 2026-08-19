@@ -1,0 +1,37 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Nav from '../components/Nav.astro';
+import Footer from '../components/Footer.astro';
+---
+
+<Layout
+  title="Page not found | NorthCinder"
+  description="The requested NorthCinder page does not exist. Return to installation, ranking, store coverage, or checkout-safety documentation."
+  indexable={false}
+>
+  <Nav />
+  <main id="main-content" tabindex="-1">
+    <section class="not-found">
+      <div class="wrap">
+        <span class="eyebrow">404 · No matching record</span>
+        <h1>That page is not in the ledger.</h1>
+        <p>The address may be outdated or mistyped. Continue with one of the maintained public pages.</p>
+        <div class="recovery-links">
+          <a href="/install/">Install NorthCinder</a>
+          <a href="/ranking/">Read how ranking works</a>
+          <a href="/store-coverage/">Check store coverage</a>
+        </div>
+      </div>
+    </section>
+  </main>
+  <Footer />
+</Layout>
+
+<style>
+  .not-found { min-height: 62vh; display: flex; align-items: center; padding: 64px 0; }
+  .not-found h1 { max-width: 13ch; margin: 14px 0 18px; font-size: clamp(2.4rem, 8vw, 5.4rem); line-height: 1.12; letter-spacing: -0.045em; }
+  .not-found p { max-width: 55ch; color: var(--ink-2); font-size: 17px; }
+  .recovery-links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
+  .recovery-links a { display: inline-flex; align-items: center; min-height: 44px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); padding: 9px 14px; text-decoration: none; }
+  .recovery-links a:hover, .recovery-links a:active { border-color: var(--verified); }
+</style>

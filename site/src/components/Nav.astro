@@ -5,15 +5,17 @@ import { REPO_URL } from '../consts';
 
 <nav class="top" aria-label="Primary">
   <div class="wrap nav-inner">
-    <div class="brand">
+    <a class="brand" href="/" aria-label="NorthCinder home">
       <Mark size={19} />
       <span>NorthCinder</span>
-    </div>
+    </a>
     <div class="nav-links">
-      <a href="#proof">Proof</a>
-      <a href="#features">Features</a>
-      {REPO_URL && <a href={`${REPO_URL}/blob/main/README.md`}>Docs</a>}
-      {REPO_URL && <a href={REPO_URL}>GitHub</a>}
+      <a href="/install/">Install</a>
+      <a href="/ranking/">Ranking</a>
+      <a href="/checkout-safety/">Safety</a>
+      <a href="/store-coverage/">Coverage</a>
+      <a href="/evidence/">Evidence</a>
+      <a href="/about/">About</a>
     </div>
     {REPO_URL ? <a href={REPO_URL} class="nav-cta">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -38,13 +40,14 @@ import { REPO_URL } from '../consts';
   }
   .nav-inner { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 24px; }
   .brand { display: flex; align-items: center; gap: 8px; }
+  a.brand { min-height: 44px; text-decoration: none; }
   .brand span { font-weight: 700; font-size: 15px; letter-spacing: -0.01em; }
-  .nav-links { display: flex; align-items: center; gap: 20px; font-size: 13.5px; font-weight: 500; color: var(--ink-2); }
+  .nav-links { display: flex; align-items: center; flex-wrap: wrap; gap: 0 18px; font-size: 13px; font-weight: 500; color: var(--ink-2); }
   .nav-links a { display: inline-flex; align-items: center; min-height: 44px; }
-  .nav-links a:hover { color: var(--ink); }
+  .nav-links a:hover, .nav-links a:active { color: var(--ink); }
   .nav-cta { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px; font-size: 13px; font-weight: 600; text-decoration: none; }
-  .coordinate-note { color: var(--ink-2); font-size: 11px; }
-  @media (max-width: 640px) {
+  .coordinate-note { color: var(--ink-2); font-size: 12px; }
+  @media (max-width: 860px) {
     .nav-inner { flex-wrap: wrap; padding-inline: 18px; }
     .nav-links { order: 3; width: 100%; }
     .coordinate-note { max-width: 17ch; text-align: right; }

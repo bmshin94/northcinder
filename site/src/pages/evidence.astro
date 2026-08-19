@@ -1,0 +1,131 @@
+---
+import ContentPage from '../components/ContentPage.astro';
+import FaqList from '../components/FaqList.astro';
+import RelatedLinks from '../components/RelatedLinks.astro';
+import { articleSchemas, evidenceDatasetSchema, type FaqItem } from '../seo';
+import { SITE_PAGES } from '../site-content';
+import { REPO_URL } from '../consts';
+
+const page = SITE_PAGES.evidence;
+const breadcrumbs = [{ name: 'Home', path: '/' }, { name: page.label, path: page.path }];
+const faqs: FaqItem[] = [
+  {
+    question: 'Are these production shopping results?',
+    answer: 'No. They are deterministic synthetic probes of the published ranking function. They test ordering behavior and weight drift, not live catalog completeness or current platform access.',
+  },
+  {
+    question: 'Can the audit be reproduced?',
+    answer: 'Yes. The generator uses a fixed seed with no clock or unseeded randomness. The repository test regenerates the report and fails when the committed output drifts.',
+  },
+  {
+    question: 'What does a passing audit prove?',
+    answer: 'It proves that the tested ranking code is invariant to input order, that sponsored-flag flips cannot improve rank or score, and that measured score deltas match the published weights for the probe set.',
+  },
+];
+const dataset = evidenceDatasetSchema(page);
+const schemas = articleSchemas(page, breadcrumbs, faqs, dataset ? [dataset] : []);
+---
+
+<ContentPage
+  page={page}
+  breadcrumbs={breadcrumbs}
+  schemas={schemas}
+  intro="NorthCinder's committed neutrality audit measures the published ranker with deterministic synthetic probes. Fifty offer sets are each shuffled five times, producing 250 rerankings that must match their canonical order. Ninety-nine sponsored-flag flips must produce no rank improvement and no score change. Eleven single-dimension probes must reproduce the published weight deltas exactly. These tests examine ranking behavior, not live store completeness or merchant truth."
+>
+  <div class="stat-grid" aria-label="Deterministic audit summary">
+    <div class="stat-card"><strong>250</strong><span>input-order rerankings with 0 canonical-order divergences</span></div>
+    <div class="stat-card"><strong>99</strong><span>sponsored-flag flips with 0 rank improvements</span></div>
+    <div class="stat-card"><strong>11</strong><span>weight probes with 0 measured-delta divergences</span></div>
+  </div>
+
+  <h2>Why the audit exists</h2>
+  <p>
+    A ranking promise is easier to trust when a person can inspect both the rule and a repeatable attempt to
+    break it. NorthCinder publishes the scoring function, the sponsorship tier, the reason schema, and a
+    generated measurement report. The client uses the same ranking package to verify the order returned by
+    the buyer-run aggregation service.
+  </p>
+  <p>
+    The audit is generated with a fixed seed, no wall clock, and no unseeded randomness. Running the generator
+    twice produces the same bytes. A repository test regenerates the report and compares it with the committed
+    copy, so an unexplained behavior change or stale report becomes a test failure.
+  </p>
+
+  <h2>Battery 1: input-order invariance</h2>
+  <p>
+    Candidate collection can complete in different orders because store requests have different latency.
+    Arrival order must not become a hidden preference. The audit creates 50 synthetic offer sets and reranks
+    five shuffled copies of each set. All 250 outputs must match the canonical order.
+  </p>
+
+  <div class="table-scroll">
+    <table class="data-table">
+      <thead><tr><th>Battery</th><th>Measurement</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr><td>Position shuffle</td><td>50 sets × 5 shuffles</td><td>250 rerankings; 0 divergences</td></tr>
+        <tr><td>Sponsored injection</td><td>99 organic-to-sponsored flag flips</td><td>0 improvements; 0 score changes</td></tr>
+        <tr><td>Attribute weights</td><td>11 isolated dimensions</td><td>0 expected-versus-measured divergences</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Battery 2: sponsored-flag injection</h2>
+  <p>
+    The audit takes organic offers and changes only their sponsored flag. A paying-placement signal must not
+    improve score or ranking. Each flipped offer must move into the sponsored tier, remain below all organic
+    offers, and carry the required de-prioritization label. Across 99 flips, the committed report records zero
+    score changes, zero rank improvements, zero sponsored offers left above an organic offer, and zero missing
+    labels.
+  </p>
+
+  <h2>Battery 3: published weight deltas</h2>
+  <p>
+    Eleven probes vary one measured dimension between otherwise identical offers. The observed score change
+    must equal the weight published by the ranker. The probes cover relative price, budget compliance,
+    required attributes, delivery, availability, merchant trust, stated ethics preferences, and sponsorship.
+    The sponsored probe must measure exactly zero because sponsorship changes tier and labeling, not score.
+  </p>
+
+  <div class="table-scroll">
+    <table class="data-table">
+      <thead><tr><th>Dimension</th><th>Expected delta</th><th>Measured delta</th></tr></thead>
+      <tbody>
+        <tr><td>Price, cheapest versus priciest</td><td>+40</td><td>+40</td></tr>
+        <tr><td>Over budget versus within budget</td><td>-25</td><td>-25</td></tr>
+        <tr><td>Required specification match</td><td>+40</td><td>+40</td></tr>
+        <tr><td>Delivery deadline met</td><td>+25</td><td>+25</td></tr>
+        <tr><td>In stock versus out of stock</td><td>+25</td><td>+25</td></tr>
+        <tr><td>Trusted merchant versus unknown</td><td>+10</td><td>+10</td></tr>
+        <tr><td>Flagged merchant versus unknown</td><td>-40</td><td>-40</td></tr>
+        <tr><td>Stated ethics preference match</td><td>+8</td><td>+8</td></tr>
+        <tr><td>Sponsored flag only</td><td>0</td><td>0</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>What these results do not establish</h2>
+  <p>
+    Synthetic probes do not show that a live store returned every relevant product, that a seller supplied a
+    correct sponsorship label, that credentials remain approved, or that a real purchase completed. They do
+    not measure user satisfaction, market adoption, merchant safety, or the quality of every possible brief.
+    NorthCinder therefore reports provenance, trust evidence, and store coverage alongside the score.
+  </p>
+  <p>
+    The audit also does not make a universal claim that the weights are morally or personally correct. They
+    are public policy choices that a buyer can inspect, test, and disagree with. The measurable claim is that
+    the current implementation applies those choices deterministically to the disclosed inputs.
+  </p>
+
+  {REPO_URL && <p>
+    Reproduce the results from the <a href={`${REPO_URL}/blob/main/docs/NEUTRALITY-AUDIT.md`}>generated audit</a>,
+    inspect the <a href={`${REPO_URL}/blob/main/packages/protocol/src/ranking/neutrality-audit.ts`}>audit generator</a>,
+    and compare the <a href={`${REPO_URL}/blob/main/packages/protocol/src/ranking/rank.ts`}>ranking source</a>.
+  </p>}
+
+  <FaqList items={faqs} />
+  <RelatedLinks links={[
+    { href: '/ranking/', label: 'Read the ranking contract', detail: 'Connect the measured probes to the published ordering rules.' },
+    { href: '/checkout-safety/', label: 'Inspect the authority boundary', detail: 'See how recommendation and purchase remain separate.' },
+    { href: '/store-coverage/', label: 'Understand evidence limits', detail: 'Separate adapter behavior from current platform access.' },
+  ]} />
+</ContentPage>

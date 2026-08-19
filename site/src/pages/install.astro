@@ -1,0 +1,130 @@
+---
+import ContentPage from '../components/ContentPage.astro';
+import FaqList from '../components/FaqList.astro';
+import RelatedLinks from '../components/RelatedLinks.astro';
+import { articleSchemas, howToSchema, type FaqItem } from '../seo';
+import { SITE_PAGES } from '../site-content';
+
+const page = SITE_PAGES.install;
+const breadcrumbs = [{ name: 'Home', path: '/' }, { name: page.label, path: page.path }];
+const faqs: FaqItem[] = [
+  {
+    question: 'Does NorthCinder need a NorthCinder account?',
+    answer: 'No. The initializer creates buyer-owned local configuration. The repository owner does not operate an account system or hosted control plane.',
+  },
+  {
+    question: 'Does NorthCinder need my AI-provider API key?',
+    answer: 'No. Your AI-provider credentials stay in the AI app that launches the MCP server. NorthCinder does not ask for or proxy that key.',
+  },
+  {
+    question: 'Will every store work immediately after installation?',
+    answer: 'No. Store access depends on the adapters you configure and each platform\'s current requirements. NorthCinder reports unavailable and unconfigured stores in its coverage response.',
+  },
+];
+const howTo = howToSchema(page);
+const schemas = articleSchemas(page, breadcrumbs, faqs, howTo ? [howTo] : []);
+---
+
+<ContentPage
+  page={page}
+  breadcrumbs={breadcrumbs}
+  schemas={schemas}
+  intro="Install NorthCinder with one public npx command, then connect the generated local MCP configuration to an AI app you already use. The initializer creates buyer-owned configuration and prints the exact command your app should launch. It does not create a NorthCinder account, send your AI-provider key anywhere, or silently claim store access you have not configured."
+>
+  <h2>Requirements</h2>
+  <p>
+    NorthCinder requires Node.js 20 or later and an AI application that can launch a local Model Context
+    Protocol server over standard input and output. The public launcher contains the built client, service,
+    shared packages, and store adapters needed for local operation. You do not need to clone the repository
+    for the ordinary setup path.
+  </p>
+
+  <div class="ledger-list">
+    <dl class="ledger-row">
+      <dt>Runtime</dt>
+      <dd>Node.js 20 or later</dd>
+    </dl>
+    <dl class="ledger-row">
+      <dt>Host</dt>
+      <dd>An AI app with local MCP server support</dd>
+    </dl>
+    <dl class="ledger-row">
+      <dt>NorthCinder account</dt>
+      <dd>Not required and not offered</dd>
+    </dl>
+    <dl class="ledger-row">
+      <dt>AI-provider key</dt>
+      <dd>Remains in your AI app</dd>
+    </dl>
+  </div>
+
+  <h2>1. Run the initializer</h2>
+  <p>Open a terminal under the operating-system account that will run your AI app, then run:</p>
+
+  <pre><code>npx northcinder init</code></pre>
+
+  <p>
+    The initializer asks for the local operating mode and store connections you want to prepare. It writes
+    owner-only configuration under your chosen config directory, creates the local client key, and prints the
+    buyer-run engine command plus generic MCP host configuration. The public package does not register a
+    background service or add a NorthCinder-operated network dependency.
+  </p>
+
+  <h2>2. Add the generated MCP entry</h2>
+  <p>
+    Copy the generated entry into the MCP configuration used by your AI app. Keep the command and environment
+    values together. Do not paste the local client key into an issue, screenshot, chat, or repository. Restart
+    or reload the AI app according to its own MCP instructions, then confirm that the NorthCinder tools appear.
+  </p>
+
+  <div class="callout">
+    <p>
+      A healthy connection proves that your AI app can launch the local MCP process. It does not prove that
+      every external store credential or platform approval is available.
+    </p>
+  </div>
+
+  <h2>3. Start with a constrained brief</h2>
+  <p>
+    A useful first request states the product, hard requirements, budget, and comparison factors. Specific
+    briefs produce evidence you can inspect and make rejected offers easier to understand.
+  </p>
+
+  <pre><code>Find black wool running shoes under $130.
+Compare price, delivery, fit, and merchant trust.
+Explain why the winner ranked first and list the options ruled out.</code></pre>
+
+  <p>
+    The response should include ranked offers, reasons, rejected requirements, merchant evidence, source
+    labels, and a store coverage report. If a configured adapter is blocked or unavailable, that state should
+    appear in the response instead of being hidden behind a partial result.
+  </p>
+
+  <h2>4. Configure store access deliberately</h2>
+  <p>
+    WooCommerce can work with stores that expose the public Store API. Shopify, eBay, and Etsy have additional
+    platform-controlled requirements. Amazon comparison uses a buyer-controlled browser profile and remains
+    read only; it stops when a challenge appears. Read the <a href="/store-coverage/">store coverage page</a>
+    before treating an adapter implementation as live access.
+  </p>
+
+  <h2>Troubleshooting the first connection</h2>
+  <p>
+    If the tools do not appear, first check the Node.js version and the command copied into the AI app. Run
+    <code>npx northcinder --version</code> in the same environment to confirm the public launcher resolves.
+    Then inspect the AI app's local MCP logs for a sanitized startup error. Never post config files without
+    removing local keys, approval URLs, store credentials, browser-profile paths, and audit data.
+  </p>
+  <p>
+    Re-run the initializer when you intentionally want a new configuration. Preserve an existing config
+    directory if it contains profiles, audit history, orders, watches, or a nonce ledger you still need.
+    NorthCinder's local state is part of the buyer's record, not a disposable cloud cache.
+  </p>
+
+  <FaqList items={faqs} />
+  <RelatedLinks links={[
+    { href: '/store-coverage/', label: 'Check store coverage', detail: 'See the current adapter and platform boundaries.' },
+    { href: '/ranking/', label: 'Understand the ranking', detail: 'Inspect filters, weights, reasons, and sponsorship handling.' },
+    { href: '/checkout-safety/', label: 'Review purchase approval', detail: 'See what must happen before a checkout rail can run.' },
+  ]} />
+</ContentPage>

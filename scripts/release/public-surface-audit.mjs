@@ -29,6 +29,19 @@ const ALLOWED_CLIENT_SCRIPT_PATHS = new Set([
   "client/scripts/build-mcpb.mjs", "client/scripts/validate-mcpb-manifest.mjs", "client/scripts/zip-lite.mjs",
 ]);
 
+const ALLOWED_GITHUB_PATHS = new Set([
+  ".github/FUNDING.yml",
+  ".github/ISSUE_TEMPLATE/bug-report.yml",
+  ".github/ISSUE_TEMPLATE/config.yml",
+  ".github/ISSUE_TEMPLATE/feature-proposal.yml",
+  ".github/pull_request_template.md",
+]);
+
+const ALLOWED_PUBLIC_MAINTAINER_EMAILS = new Set([
+  "jdshfhds@users.noreply.github.com",
+  "150383880+cinderline@users.noreply.github.com",
+]);
+
 const PUBLIC_AUDIENCE_FILES = [
   "README.md",
   "MANIFESTO.md",
@@ -43,7 +56,7 @@ const PUBLIC_AUDIENCE_FILES = [
   "docs/brand/mark-on-tile.svg",
   "docs/brand/wordmark.svg",
   "remote/README.md",
-  "site/public/llms.txt",
+  "site/src/pages/llms.txt.ts",
 ];
 
 const INTERNAL_COPY_PATTERNS = [
@@ -80,7 +93,6 @@ const SENSITIVE_PATTERNS = [
   ["OpenAI key", /\bsk-[A-Za-z0-9_-]{20,}\b/],
   ["Slack token", /\bxox[baprs]-[A-Za-z0-9-]{20,}\b/],
   ["Stripe live key", /\b(?:sk|rk)_live_[A-Za-z0-9]{16,}\b/],
-  ["local operator path", /\/home\/bsg(?:\/|\b)|\/mnt\/c\/Users\/Gamer(?:\/|\b)|[A-Za-z]:\\Users\\Gamer(?:\\|\b)/i],
   ["private commit email", /\bagenticcommerce@local\b/i],
   ["private IPv4 address", /\b(?:10(?:\.\d{1,3}){3}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2}|192\.168(?:\.\d{1,3}){2})\b/],
 ];
@@ -113,6 +125,12 @@ const PRIVATE_PROCESS_HASHES = new Set([
   "8d4392980a375524812037945a74a5cac7532d0a744a863b7b727a2a6a0f7681",
 ]);
 
+const PRIVATE_LOCAL_PATH_HASHES = new Set([
+  "ee3665fe4c143ddb210e2b648d93a911f2600c26d1a7757b215ab64f81e3e897",
+  "5faa969aaa33ccc02cd777be65d00fee560d1d968a7933e0682db6fd4a2908fd",
+  "8ffc9b067f4ad3e426ac3f78e9a45fdae9ea7b6d115c304fa86888acde2bbcaa",
+]);
+
 function digest(value) {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -143,8 +161,9 @@ export function forbiddenPathFindings(paths) {
       (path.startsWith("docs/") && !ALLOWED_DOC_PATHS.has(path)) ||
       (path.startsWith("scripts/release/") && !ALLOWED_RELEASE_PATHS.has(path)) ||
       (path.startsWith("client/scripts/") && !ALLOWED_CLIENT_SCRIPT_PATHS.has(path)) ||
+      (path.startsWith(".github/") && !ALLOWED_GITHUB_PATHS.has(path)) ||
       path.startsWith("service/scripts/") || path.startsWith("packages/checkout/scripts/") ||
-      (hidden && !ALLOWED_TOP_LEVEL_FILES.has(path));
+      (hidden && !ALLOWED_TOP_LEVEL_FILES.has(path) && !ALLOWED_GITHUB_PATHS.has(path));
     return disallowed ? [`${path}: internal-only or unreviewed public path is tracked`] : [];
   });
 }
@@ -174,10 +193,18 @@ function missingStandaloneCopyFindings(path, body) {
     .map((required) => `${path}: missing standalone contract text ${JSON.stringify(required)}`);
 }
 
-export function sensitiveTextFindings(path, body) {
+export function sensitiveTextFindings(path, body, privateLocalPathHashes = PRIVATE_LOCAL_PATH_HASHES) {
   const findings = SENSITIVE_PATTERNS
     .filter(([, pattern]) => pattern.test(body))
     .map(([label]) => `${path}: ${label}`);
+  const localPathRoots = [
+    ...body.matchAll(/\/home\/[A-Za-z0-9._-]+/g),
+    ...body.matchAll(/\/mnt\/[a-z]\/Users\/[A-Za-z0-9._ -]+/gi),
+    ...body.matchAll(/[A-Za-z]:\\Users\\[^\\\r\n]+/g),
+  ].map((match) => match[0].replaceAll("\\", "/").toLowerCase());
+  if (localPathRoots.some((candidate) => privateLocalPathHashes.has(digest(candidate)))) {
+    findings.push(`${path}: local operator path`);
+  }
   for (const line of body.split(/\r?\n/)) {
     const match = line.match(/\b[A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PRIVATE_KEY)[ \t]*=[ \t]*([^#]*)/);
     if (!match) continue;
@@ -267,9 +294,9 @@ export function commitMetadataFindings(records, { rootCount, mergeCount }) {
   if (mergeCount !== 0) findings.push(`history: expected linear public history, found ${mergeCount} merge commits`);
   for (const record of records) {
     if (record.authorName !== "NorthCinder maintainers") findings.push(`history: unexpected public author name ${JSON.stringify(record.authorName)}`);
-    if (record.authorEmail !== "jdshfhds@users.noreply.github.com") findings.push(`history: unexpected public author email ${JSON.stringify(record.authorEmail)}`);
+    if (!ALLOWED_PUBLIC_MAINTAINER_EMAILS.has(record.authorEmail)) findings.push(`history: unexpected public author email ${JSON.stringify(record.authorEmail)}`);
     if (record.committerName !== "NorthCinder maintainers") findings.push(`history: unexpected public committer name ${JSON.stringify(record.committerName)}`);
-    if (record.committerEmail !== "jdshfhds@users.noreply.github.com") findings.push(`history: unexpected public committer email ${JSON.stringify(record.committerEmail)}`);
+    if (!ALLOWED_PUBLIC_MAINTAINER_EMAILS.has(record.committerEmail)) findings.push(`history: unexpected public committer email ${JSON.stringify(record.committerEmail)}`);
     const metadata = `${record.subject}\n${record.body}`;
     findings.push(...sensitiveTextFindings("history", metadata));
     findings.push(...internalToolFindings("history", metadata));
@@ -280,14 +307,16 @@ export function commitMetadataFindings(records, { rootCount, mergeCount }) {
 
 export function runAudit({ requireRootHistory = false } = {}) {
   const tracked = git(["ls-files", "-z"]).split("\0").filter(Boolean);
-  const findings = forbiddenPathFindings(tracked);
-  const trackedSet = new Set(tracked);
+  const untracked = git(["ls-files", "--others", "--exclude-standard", "-z"]).split("\0").filter(Boolean);
+  const publicPaths = [...new Set([...tracked, ...untracked])].filter((path) => existsSync(resolve(root, path)));
+  const findings = forbiddenPathFindings(publicPaths);
+  const publicPathSet = new Set(publicPaths);
 
   for (const path of PUBLIC_AUDIENCE_FILES) {
-    if (!trackedSet.has(path)) findings.push(`${path}: required public file is not tracked`);
+    if (!publicPathSet.has(path)) findings.push(`${path}: required public file is missing from the publication candidate`);
   }
 
-  for (const path of tracked) {
+  for (const path of publicPaths) {
     const body = textFile(path);
     if (body === null) continue;
     findings.push(...sensitiveTextFindings(path, body));
@@ -321,7 +350,7 @@ export function runAudit({ requireRootHistory = false } = {}) {
     findings.push(...commitMetadataFindings(records, { rootCount, mergeCount }));
   }
 
-  return { findings, trackedCount: tracked.length };
+  return { findings, trackedCount: tracked.length, untrackedCount: untracked.length, reviewedCount: publicPaths.length };
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
@@ -331,6 +360,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     for (const finding of result.findings) process.stderr.write(`[public-surface] ${finding}\n`);
     process.exitCode = 1;
   } else {
-    process.stdout.write(`[public-surface] PASS (${result.trackedCount} tracked paths; internal paths, public copy, secrets, links${requireRootHistory ? ", and public history" : ""} clean)\n`);
+    process.stdout.write(`[public-surface] PASS (${result.reviewedCount} present tracked/untracked candidate paths; internal paths, public copy, secrets, links${requireRootHistory ? ", and public history" : ""} clean)\n`);
   }
 }

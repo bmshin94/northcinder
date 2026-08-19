@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and open-ended ideas
+    url: https://github.com/cinderline/northcinder/discussions
+    about: Ask for help or discuss an idea before turning it into focused work.
+  - name: Security vulnerability
+    url: https://github.com/cinderline/northcinder/security/advisories/new
+    about: Report vulnerabilities privately. Do not open a public issue.

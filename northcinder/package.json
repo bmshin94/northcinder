@@ -16,12 +16,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jdshfhds/northcinder.git",
+    "url": "git+https://github.com/cinderline/northcinder.git",
     "directory": "northcinder"
   },
-  "homepage": "https://github.com/jdshfhds/northcinder#readme",
+  "homepage": "https://github.com/cinderline/northcinder#readme",
   "bugs": {
-    "url": "https://github.com/jdshfhds/northcinder/issues"
+    "url": "https://github.com/cinderline/northcinder/issues"
   },
   "publishConfig": {
     "access": "public"

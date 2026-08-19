@@ -65,6 +65,8 @@ credentials. Your deployment creates no callback or control connection to the re
 
 ## Registry metadata
 
-`remote/server.json` and `client/server.json` carry MCP Registry templates for a deployer and the
-local stdio variant. A deployer must supply their own URL and review the files against the current
-registry schema before submitting their own release.
+NorthCinder is not currently listed in the official MCP Registry. This repository does not include a
+deployer-ready remote manifest because the bridge has no NorthCinder-operated URL to publish. A user who
+deploys the bridge must create metadata for their own verified namespace and HTTPS endpoint, then validate it
+against the current registry schema before submission. The local stdio package needs its own current,
+package-linked metadata before the project maintainer submits it separately.

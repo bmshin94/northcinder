@@ -1,0 +1,117 @@
+---
+import ContentPage from '../components/ContentPage.astro';
+import FaqList from '../components/FaqList.astro';
+import RelatedLinks from '../components/RelatedLinks.astro';
+import { aboutSchemas, type FaqItem } from '../seo';
+import { MAINTAINER, SITE_PAGES } from '../site-content';
+import { REPO_URL } from '../consts';
+
+const page = SITE_PAGES.about;
+const breadcrumbs = [{ name: 'Home', path: '/' }, { name: page.label, path: page.path }];
+const faqs: FaqItem[] = [
+  {
+    question: 'Who operates NorthCinder?',
+    answer: 'The buyer runs the software. The repository maintainer publishes source and releases but does not operate a NorthCinder endpoint, account system, telemetry service, or checkout path.',
+  },
+  {
+    question: 'How does NorthCinder make money from rankings?',
+    answer: 'It does not. NorthCinder does not sell sponsored placement, take affiliate ranking payments, skim checkout, or sell buyer data.',
+  },
+  {
+    question: 'Is NorthCinder open source?',
+    answer: 'Yes. The public repository is MIT licensed, including the ranking, checkout, client, service, adapters, and local audit surfaces.',
+  },
+];
+const schemas = aboutSchemas(page, breadcrumbs, faqs);
+---
+
+<ContentPage
+  page={page}
+  breadcrumbs={breadcrumbs}
+  schemas={schemas}
+  intro={`NorthCinder is MIT-licensed shopping-agent software maintained publicly by ${MAINTAINER.name}, an open-source AI developer interested in an internet where agents can use inspectable tools without taking consequential control away from people. Buyers run NorthCinder themselves. The maintainer does not operate an endpoint, issue runtime accounts, collect telemetry, sell placement, or sit in the purchase path after publication.`}
+>
+  <h2>Why the project exists</h2>
+  <p>
+    A shopping agent can choose what a person sees and, in some systems, act on that choice. NorthCinder
+    starts with a narrow question: who is the agent working for? The ranking inputs are the buyer's brief,
+    budget, requirements, preferences, delivery needs, and available merchant evidence. Seller payment is not
+    one of those inputs.
+  </p>
+  <p>
+    The project does not ask people to trust another shopping brand. It exposes the ranking function, attaches
+    reasons to each recommendation, reports missing store coverage, records provenance, and keeps a local audit
+    trail. A buyer can inspect what the system considered and what it could not verify.
+  </p>
+
+  <h2>Buyer-run software</h2>
+  <p>
+    NorthCinder is a package and source repository, not a hosted shopping service. The buyer launches the
+    local MCP client through an AI app and runs the aggregation engine on infrastructure they control. The
+    optional remote bridge is also self-hosted by the user who chooses it. Publication is the handoff; an
+    installed copy does not need the repository maintainer to remain online.
+  </p>
+
+  <div class="ledger-list">
+    <dl class="ledger-row"><dt>Accounts</dt><dd>No NorthCinder runtime account system</dd></dl>
+    <dl class="ledger-row"><dt>Telemetry</dt><dd>No search, profile, order, or audit data returned to the maintainer</dd></dl>
+    <dl class="ledger-row"><dt>Ranking revenue</dt><dd>No sponsored placement sale or affiliate ranking payment</dd></dl>
+    <dl class="ledger-row"><dt>Checkout revenue</dt><dd>No checkout skim or payment-data collection</dd></dl>
+    <dl class="ledger-row"><dt>License</dt><dd>MIT</dd></dl>
+  </div>
+
+  <h2>Maintained under a public pseudonym</h2>
+  <p>
+    The public maintainer identity is <a href={MAINTAINER.url}>{MAINTAINER.name}</a>. The pseudonym keeps a
+    stable open-source byline without publishing a private legal identity, location, employer, or unrelated
+    work. Technical claims should be judged through the public source, release history, tests, issue handling,
+    and security response rather than biographical detail.
+  </p>
+
+  <h2>The money boundary</h2>
+  <p>
+    NorthCinder does not sell sponsored placement. If a store marks an offer sponsored, or a local demo creates
+    a synthetic sponsored offer, the result stays labeled and below organic offers. The project has no
+    affiliate stream, subscription account, hosted control plane, or buyer-data business. Future operating
+    choices must preserve the rule that seller money cannot improve ranking.
+  </p>
+
+  <h2>The authority boundary</h2>
+  <p>
+    Search is not permission to purchase. Price watches do not buy. A recommendation does not buy. Automated
+    checkout requires a separate buyer decision bound to the exact offer, quantity, and spending cap. The
+    resulting signed mandate is single use, and the nonce is consumed before an external rail runs. Raw card
+    fields are rejected throughout the codebase.
+  </p>
+
+  <h2>What open source can and cannot prove</h2>
+  <p>
+    The repository can prove what its code does over known inputs. It can publish schemas, deterministic
+    tests, adapter contracts, generated audits, and release checks. It cannot prove that an external catalog
+    is complete, a merchant statement is true, a platform credential remains approved, or a future deployment
+    is operated safely by someone else. Public documentation names these boundaries instead of smoothing them
+    into a broad claim.
+  </p>
+
+  <h2>Contributing and security</h2>
+  <p>
+    Reproducible bugs and focused proposals belong in GitHub Issues. Questions and early ideas belong in
+    GitHub Discussions. Pull requests should stay small, include verification, and preserve the ranking,
+    sponsorship, trust, approval, payment-data, and telemetry invariants. Security vulnerabilities belong in
+    GitHub private vulnerability reporting, never a public issue.
+  </p>
+
+  {REPO_URL && <p>
+    Read the <a href={`${REPO_URL}/blob/main/MANIFESTO.md`}>project manifesto</a>,
+    <a href={`${REPO_URL}/blob/main/docs/INDEPENDENCE.md`}>software ownership boundary</a>,
+    <a href={`${REPO_URL}/blob/main/CONTRIBUTING.md`}>contribution guide</a>, and
+    <a href={`${REPO_URL}/blob/main/SECURITY.md`}>security policy</a>.
+  </p>}
+
+  <FaqList items={faqs} />
+  <RelatedLinks links={[
+    { href: '/install/', label: 'Install the public package', detail: 'Run the buyer-owned local setup without a NorthCinder account.' },
+    { href: '/ranking/', label: 'Inspect the ranking policy', detail: 'See the published inputs, weights, reasons, and limits.' },
+    { href: '/checkout-safety/', label: 'Review purchase control', detail: 'Understand the exact-payload and single-use mandate boundary.' },
+  ]} />
+</ContentPage>

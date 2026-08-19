@@ -4,7 +4,7 @@
 
 Use GitHub's private vulnerability-reporting form:
 
-<https://github.com/jdshfhds/northcinder/security/advisories/new>
+<https://github.com/cinderline/northcinder/security/advisories/new>
 
 Do not open a public issue for a vulnerability. Include the affected component, impact, minimal
 reproduction steps, and a suggested fix when available. Remove credentials, personal data, private

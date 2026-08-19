@@ -1,0 +1,29 @@
+---
+import type { FaqItem } from '../seo';
+
+interface Props {
+  items: FaqItem[];
+}
+
+const { items } = Astro.props;
+---
+
+<section class="faq-block" aria-labelledby="faq-title">
+  <h2 id="faq-title">Questions people ask</h2>
+  <div class="faq-list">
+    {items.map((item) => (
+      <section class="faq-item">
+        <h3>{item.question}</h3>
+        <p>{item.answer}</p>
+      </section>
+    ))}
+  </div>
+</section>
+
+<style>
+  .faq-block { margin-top: 56px; padding-top: 40px; border-top: 1px solid var(--line); }
+  .faq-list { display: grid; gap: 0; border-top: 1px solid var(--line); }
+  .faq-item { padding: 20px 0; border-bottom: 1px solid var(--line); }
+  .faq-item h3 { margin: 0 0 8px; font-size: 16px; }
+  .faq-item p { margin: 0; color: var(--ink-2); }
+</style>

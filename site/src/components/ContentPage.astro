@@ -1,0 +1,82 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Nav from './Nav.astro';
+import Footer from './Footer.astro';
+import type { SitePage } from '../site-content';
+
+interface Crumb {
+  name: string;
+  path: string;
+}
+
+interface Props {
+  page: SitePage;
+  intro: string;
+  schemas: Record<string, unknown>[];
+  breadcrumbs: Crumb[];
+}
+
+const { page, intro, schemas, breadcrumbs } = Astro.props;
+---
+
+<Layout
+  title={page.title}
+  description={page.description}
+  schemas={schemas}
+  pageType="article"
+  published={page.published}
+  modified={page.modified}
+>
+  <Nav />
+  <main id="main-content" tabindex="-1">
+    <article class="content-page">
+      <div class="wrap content-shell">
+        <nav class="breadcrumbs" aria-label="Breadcrumb">
+          <ol>
+            {breadcrumbs.map((crumb, index) => (
+              <li>
+                {index < breadcrumbs.length - 1
+                  ? <a href={crumb.path}>{crumb.name}</a>
+                  : <span aria-current="page">{crumb.name}</span>}
+              </li>
+            ))}
+          </ol>
+        </nav>
+        <header class="content-header">
+          <span class="eyebrow">{page.eyebrow}</span>
+          <h1>{page.label}</h1>
+          <p class="content-intro">{intro}</p>
+          <p class="content-date mono">
+            Published <time datetime={page.published}>{page.published}</time>
+            <span aria-hidden="true"> · </span>
+            Updated <time datetime={page.modified}>{page.modified}</time>
+          </p>
+        </header>
+        <div class="prose">
+          <slot />
+        </div>
+      </div>
+    </article>
+  </main>
+  <Footer />
+</Layout>
+
+<style>
+  .content-page { padding: 40px 0 64px; }
+  .content-shell { max-width: 1080px; }
+  .breadcrumbs { margin-bottom: 40px; }
+  .breadcrumbs ol { display: flex; flex-wrap: wrap; gap: 6px 10px; margin: 0; padding: 0; list-style: none; color: var(--ink-2); font-size: 12px; }
+  .breadcrumbs li:not(:last-child)::after { content: '/'; margin-left: 10px; color: var(--line-strong); }
+  .breadcrumbs a { display: inline-flex; align-items: center; min-height: 44px; }
+  .content-header { max-width: 760px; padding-bottom: 40px; border-bottom: 1px solid var(--line); }
+  .content-header h1 { max-width: 18ch; margin: 12px 0 16px; font-size: clamp(2.35rem, 7vw, 4.5rem); line-height: 1.12; letter-spacing: -0.045em; }
+  .content-intro { max-width: 68ch; margin: 0; color: var(--ink-2); font-size: clamp(1.05rem, 2vw, 1.25rem); line-height: 1.6; }
+  .content-date { margin: 20px 0 0; color: var(--ink-2); font-size: 12px; }
+  .prose { max-width: 760px; padding-top: 40px; }
+  @media (max-width: 720px) {
+    .content-page { padding: 24px 0 40px; }
+    .breadcrumbs { margin-bottom: 24px; }
+    .content-header { padding-bottom: 32px; }
+    .prose { padding-top: 32px; }
+  }
+</style>

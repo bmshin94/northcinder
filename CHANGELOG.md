@@ -2,6 +2,28 @@
 
 Notable public changes to NorthCinder are recorded here.
 
+## Unreleased
+
+### Added
+
+- Added structured GitHub forms for reproducible bugs and focused feature proposals, plus a pull-request
+  template that protects the ranking, sponsorship, approval, payment-data, and telemetry invariants.
+- Added GitHub Sponsors metadata for supporting NorthCinder maintenance.
+- Added static install, ranking, checkout-safety, store-coverage, verification-evidence, about, and 404 site
+  surfaces with visible FAQs, breadcrumbs, dates, source links, and related-reading paths.
+- Added fail-closed canonical/Open Graph controls, page-specific JSON-LD, a seven-route sitemap, dynamic
+  robots and `llms.txt` outputs, a raster social card, and a dependency-free live SEO/crawler checker.
+
+### Changed
+
+- Reworked the README around public installation, inspectable evidence, runtime architecture, honest
+  integration status, privacy boundaries, and contribution routes.
+- Raised small marketing labels to the verified readability floor and made coverage tables reflow into
+  labeled records on narrow screens.
+- Reconciled the README and remote-bridge documentation with the 2026-08-17 public GitHub/npm release while
+  preserving the still-open site, registry, hosted-service, live-adapter, and real-purchase gates.
+- Updated public repository and maintainer links for the `cinderline` account.
+
 ## 2026-08-17 — `northcinder` 0.1.2
 
 - Published NorthCinder as buyer-run, open-source shopping-agent software with `npx northcinder init`.
