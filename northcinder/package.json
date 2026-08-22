@@ -1,7 +1,7 @@
 {
   "name": "northcinder",
-  "version": "0.1.2",
-  "description": "Buyer-run shopping agent MCP server with neutral ranking, reasons, approval, and local audit",
+  "version": "0.2.0",
+  "description": "NorthCinder is a buyer-run MCP shopping agent that compares evidence, explains tradeoffs, and asks before purchase",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -29,11 +29,15 @@
   "bin": {
     "northcinder": "bin/northcinder.js"
   },
-  "files": ["bin"],
+  "files": [
+    "bin",
+    "research-skills/product-research/SKILL.md",
+    "research-skills/seller-research/SKILL.md"
+  ],
   "scripts": {
     "build": "node scripts/build.mjs",
     "prepack": "node scripts/build.mjs",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test --test-concurrency=1 test/*.test.mjs"
   },
   "optionalDependencies": {
     "playwright-core": "^1.61.1"

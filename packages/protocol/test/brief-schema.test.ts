@@ -12,6 +12,25 @@ const FINALIST = {
   price: { amount: 9800, currency: "USD" },
   availability: "in_stock" as const,
   sponsored: false,
+  imageUrl: "https://mock-merchant.example/item-1.jpg",
+  productIdentity: {
+    canonical: "Mock Merchant Wool Blend Sneaker blue US 9",
+    variant: "blue US 9",
+    identifiers: [],
+  },
+  landedCost: {
+    components: [{ kind: "item_price" as const, amount: { amount: 9800, currency: "USD" } }],
+    knownTotal: { amount: 9800, currency: "USD" },
+    unknownComponents: [],
+    completeness: "complete" as const,
+  },
+  sellerState: "trusted" as const,
+  freshness: { status: "known" as const, observedAt: "2026-07-04T12:00:00.000Z" },
+  verificationState: "merchant_verified" as const,
+  decisionStatus: "ready" as const,
+  importantUnknowns: [],
+  decisiveDownside: "No decisive downside established from current evidence.",
+  rawReasons: [{ criterion: "price" as const, detail: "lowest price: 9800 USD" }],
   whyThis: ["price: lowest price: 9800 USD"],
   tradeoffs: [{ dimension: "price" as const, detail: "cheapest finalist at 98.00 USD" }],
   provenance: {
@@ -41,6 +60,8 @@ function validBrief(finalistCount: number) {
       { store: "amazon", status: "blocked" as const, offerCount: 0, detail: "bot check triggered" },
     ],
     offersConsidered: finalistCount + 1,
+    decisionSummary: finalistCount === 0 ? [] : [{ role: "top_fit" as const, sourceStore: "ebay", offerId: "item-1", roleReason: "First qualifying finalist in the neutrality ranking." }],
+    unresolvedResearchQuestions: [],
   };
 }
 
@@ -82,6 +103,41 @@ describe("BuyersBrief schema", () => {
     const brief = validBrief(1);
     (brief.finalists[0] as { whyThis: string[] }).whyThis = [];
     expect(BuyersBriefSchema.safeParse(brief).success).toBe(false);
+  });
+
+  it("enforces a resolved, unique, at-most-three role summary without allowing role or offer padding", () => {
+    const brief = validBrief(3);
+    brief.decisionSummary = [
+      { role: "top_fit", sourceStore: "ebay", offerId: "item-1", roleReason: "First qualifying finalist in the neutrality ranking." },
+      { role: "lower_risk", sourceStore: "ebay", offerId: "item-2", roleReason: "Has a lower evidence-risk tuple." },
+      { role: "budget_or_different", sourceStore: "ebay", offerId: "item-3", roleReason: "Cheaper same-currency remaining finalist." },
+    ];
+    expect(BuyersBriefSchema.safeParse(brief).success).toBe(true);
+    expect(BuyersBriefSchema.safeParse({ ...brief, decisionSummary: [...brief.decisionSummary, brief.decisionSummary[0]] }).success).toBe(false);
+    expect(BuyersBriefSchema.safeParse({ ...brief, decisionSummary: [{ ...brief.decisionSummary[0], role: "lower_risk" }, { ...brief.decisionSummary[0], roleReason: "duplicate offer" }] }).success).toBe(false);
+    expect(BuyersBriefSchema.safeParse({ ...brief, decisionSummary: [{ ...brief.decisionSummary[0], offerId: "missing" }] }).success).toBe(false);
+  });
+
+  it("requires top_fit first and permits each later role only in its fixed progressive sequence", () => {
+    const brief = validBrief(3);
+    brief.decisionSummary = [
+      { role: "top_fit", sourceStore: "ebay", offerId: "item-1", roleReason: "First qualifying finalist in the neutrality ranking." },
+      { role: "lower_risk", sourceStore: "ebay", offerId: "item-2", roleReason: "Has a lower evidence-risk tuple." },
+      { role: "budget_or_different", sourceStore: "ebay", offerId: "item-3", roleReason: "Cheaper same-currency remaining finalist." },
+    ];
+    expect(BuyersBriefSchema.safeParse(brief).success).toBe(true);
+    expect(BuyersBriefSchema.safeParse({ ...brief, decisionSummary: [brief.decisionSummary[1]!] }).success).toBe(false);
+    expect(BuyersBriefSchema.safeParse({ ...brief, decisionSummary: [brief.decisionSummary[0]!, brief.decisionSummary[2]!, brief.decisionSummary[1]!] }).success).toBe(false);
+  });
+
+  it("keeps decision display fields strict and bounds unique unanswered questions", () => {
+    const brief = validBrief(1);
+    expect(BuyersBriefSchema.safeParse(brief).success).toBe(true);
+    expect(BuyersBriefSchema.safeParse({ ...brief, finalists: [{ ...brief.finalists[0], verificationState: "guessed" }] }).success).toBe(false);
+    expect(BuyersBriefSchema.safeParse({ ...brief, finalists: [{ ...brief.finalists[0], freshness: { status: "known" } }] }).success).toBe(false);
+    expect(BuyersBriefSchema.safeParse({ ...brief, finalists: [{ ...brief.finalists[0], importantUnknowns: Array(13).fill("unknown") }] }).success).toBe(false);
+    expect(BuyersBriefSchema.safeParse({ ...brief, unresolvedResearchQuestions: ["question", "question"] }).success).toBe(false);
+    expect(BuyersBriefSchema.safeParse({ ...brief, unresolvedResearchQuestions: Array.from({ length: 13 }, (_, i) => `question ${i}`) }).success).toBe(false);
   });
 });
 

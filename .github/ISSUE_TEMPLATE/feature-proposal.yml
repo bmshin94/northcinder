@@ -33,11 +33,12 @@ body:
     attributes:
       label: Primary surface
       options:
-        - Ranking, protocol, or merchant trust
+        - Product or seller evidence
+        - Ranking or three-candidate decision brief
         - Store adapter
-        - Checkout or approval
-        - Client, dashboard, or audit trail
-        - Profiles, watches, or orders
+        - Exact-purchase approval or checkout
+        - Client, dashboard, outcomes, or audit trail
+        - Preferences, watches, orders, or reminders
         - Packaging, setup, or documentation
         - Other
     validations:
@@ -50,7 +51,9 @@ body:
       options:
         - label: This proposal keeps seller payment out of ranking.
           required: true
-        - label: This proposal does not bypass per-purchase human approval.
+        - label: This proposal preserves separate human approval for one exact purchase.
           required: true
-        - label: This proposal does not introduce raw card handling or undisclosed telemetry.
+        - label: This proposal treats host, page, model, and provider content as untrusted data.
+          required: true
+        - label: This proposal does not introduce raw card handling, undisclosed telemetry, or a NorthCinder-operated service.
           required: true

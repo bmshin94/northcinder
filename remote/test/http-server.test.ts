@@ -70,7 +70,7 @@ describe("remote MCP bridge — real Streamable HTTP handshake", () => {
   it("GET /health returns ok without auth", async () => {
     const res = await fetch(`${baseUrl}/health`);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, service: "northcinder-remote", version: "0.1.0" });
+    expect(await res.json()).toEqual({ ok: true, service: "northcinder-remote", version: "0.2.0" });
   });
 
   it("rejects an unauthenticated MCP request", async () => {

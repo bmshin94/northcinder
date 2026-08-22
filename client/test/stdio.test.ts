@@ -42,12 +42,13 @@ describe("northcinder MCP server — real stdio transport", () => {
     await client.close();
   });
 
-  it("completes the MCP handshake and lists all seventeen tools with input schemas over stdio", async () => {
+  it("completes the MCP handshake and lists all twenty-one tools with input schemas over stdio", async () => {
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
       "approve_purchase",
       "cancel_watch",
       "complete_checkout",
+      "create_research_plan",
       "create_watch",
       "decline_purchase",
       "get_buyers_brief",
@@ -58,9 +59,12 @@ describe("northcinder MCP server — real stdio transport", () => {
       "list_orders",
       "list_watches",
       "record_feedback",
+      "record_order_outcome",
       "request_purchase_authorization",
+      "review_preference_proposal",
       "search_products",
       "submit_browser_observations",
+      "submit_decision_evidence",
       "update_profile",
     ]);
     const search = tools.find((t) => t.name === "search_products")!;

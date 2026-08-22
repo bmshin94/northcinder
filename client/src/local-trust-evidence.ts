@@ -51,7 +51,7 @@
  * HTML-escapes at render (defense in depth, not the only layer). Any
  * record that isn't shaped the way we expect is skipped, never thrown on.
  */
-import type { Merchant, Order, TrustEvidence } from "@northcinder/protocol";
+import type { LifecycleReminder, Merchant, Order, PurchaseOutcome, TrustEvidence } from "@northcinder/protocol";
 import type { OrderRecord } from "@northcinder/checkout";
 
 /** Distinct from every service-side evidence `source` (e.g. "seed-list", "rdap", "tranco"). */
@@ -68,6 +68,9 @@ export interface LocalTrustEvidenceInput {
    * defensively skips them itself (belt + suspenders — see module doc).
    */
   graphOrders?: readonly Order[];
+  /** Confirmed buyer-local outcomes linked only through a matching completed checkout order id. */
+  outcomes?: readonly PurchaseOutcome[];
+  lifecycleReminders?: readonly LifecycleReminder[];
   now?: () => Date;
 }
 
@@ -82,19 +85,30 @@ function isoDateFromMs(ms: number): string {
 
 export function deriveLocalTrustEvidence(input: LocalTrustEvidenceInput): TrustEvidence[] {
   try {
-    const { merchant, checkoutOrders, graphOrders = [] } = input;
+    const { merchant, checkoutOrders, graphOrders = [], outcomes = [], lifecycleReminders = [] } = input;
     if (!isNonEmptyString(merchant?.id) || !isNonEmptyString(merchant?.domain)) return [];
 
     let completedCount = 0;
+    const matchingCompletedOrderIds = new Set<string>();
+    const outcomeEligibleOrderIds = new Set<string>();
     for (const record of checkoutOrders) {
       if (!record || typeof record !== "object") continue; // malformed line: skip, never throw
       if (!isNonEmptyString((record as OrderRecord).merchantId)) continue;
       if (!isNonEmptyString((record as OrderRecord).merchantDomain)) continue;
       if ((record as OrderRecord).merchantId !== merchant.id) continue;
       if ((record as OrderRecord).merchantDomain.toLowerCase() !== merchant.domain.toLowerCase()) continue;
-      if ((record as OrderRecord).status === "completed") completedCount += 1;
+      outcomeEligibleOrderIds.add((record as OrderRecord).orderId);
+      if ((record as OrderRecord).status === "completed") {
+        completedCount += 1;
+        matchingCompletedOrderIds.add((record as OrderRecord).orderId);
+      }
     }
-    if (completedCount === 0) return []; // no verifiable local history — no evidence line at all
+    for (const order of graphOrders) {
+      if (!order || typeof order !== "object" || order.source?.kind === "checkout") continue;
+      if (isNonEmptyString(order.merchantDomain) && order.merchantDomain.toLowerCase() === merchant.domain.toLowerCase()) {
+        outcomeEligibleOrderIds.add(order.id);
+      }
+    }
 
     const merchantDomainLower = merchant.domain.toLowerCase();
     let lastDeliveredMs: number | undefined;
@@ -116,7 +130,29 @@ export function deriveLocalTrustEvidence(input: LocalTrustEvidenceInput): TrustE
         : `your history: ${completedCount} completed ${orderWord} from this merchant (local orders)`;
 
     const now = input.now ?? (() => new Date());
-    return [{ source: LOCAL_TRUST_EVIDENCE_SOURCE, detail, fetchedAt: now().toISOString() }];
+    const evidence: TrustEvidence[] = completedCount === 0 ? [] : [{ source: LOCAL_TRUST_EVIDENCE_SOURCE, detail, fetchedAt: now().toISOString() }];
+    const confirmed = outcomes.filter((outcome) => outcome && outcomeEligibleOrderIds.has(outcome.orderId)).slice(0, 20);
+    if (confirmed.length > 0) {
+      const count = (selector: (outcome: PurchaseOutcome) => string | undefined): string => {
+        const counts = new Map<string, number>();
+        for (const outcome of confirmed) {
+          const value = selector(outcome);
+          if (value !== undefined && value !== "unknown" && value !== "not_used") counts.set(value, (counts.get(value) ?? 0) + 1);
+        }
+        return [...counts.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([value, total]) => `${value} ${total}`).join("; ");
+      };
+      const states = count((outcome) => outcome.state);
+      const delivery = count((outcome) => outcome.merchantDelivery);
+      const support = count((outcome) => outcome.merchantSupport);
+      evidence.push({ source: LOCAL_TRUST_EVIDENCE_SOURCE, detail: `your confirmed local outcomes: ${states}${delivery ? `; delivery ${delivery}` : ""}${support ? `; support ${support}` : ""} (local orders)`, fetchedAt: now().toISOString() });
+    }
+    const matchedLifecycle = lifecycleReminders.filter((reminder) => outcomeEligibleOrderIds.has(reminder.orderId)).slice(0, 20);
+    if (matchedLifecycle.length > 0) {
+      const sent = matchedLifecycle.filter((reminder) => reminder.reminderSentAt !== undefined).length;
+      evidence.push({ source: LOCAL_TRUST_EVIDENCE_SOURCE, detail: `your lifecycle reminders: ${matchedLifecycle.length - sent} pending; ${sent} sent (local orders)`, fetchedAt: now().toISOString() });
+    }
+    if (evidence.length === 0) return [];
+    return evidence;
   } catch {
     // Never let hostile/malformed stored data throw across this boundary —
     // display-only evidence degrades to "nothing to say", never a crash.

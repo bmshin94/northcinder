@@ -1,14 +1,29 @@
 import { describe, expect, it } from "vitest";
 import {
   BrowserObservationReportSchema,
+  GetOfferRequestSchema,
+  GetOfferResponseSchema,
   SearchRankRequestSchema,
   SearchRankResponseSchema,
   StoreStatusSchema,
+  SourceStatusSchema,
   TrustRequestSchema,
   TrustResponseSchema,
 } from "../src/schemas/api.js";
 
 describe("HTTP API wire schemas", () => {
+  it("accepts only a strict exact-offer request and adapter-result response", () => {
+    expect(GetOfferRequestSchema.parse({ store: "reference", offerId: "off-1" })).toEqual({ store: "reference", offerId: "off-1" });
+    expect(GetOfferRequestSchema.safeParse({ store: "reference", offerId: "off-1", query: { text: "no" } }).success).toBe(false);
+    expect(GetOfferResponseSchema.parse({
+      ok: true,
+      offer: {
+        id: "off-1", product: { id: "p-1", title: "Hub", url: "https://shop.example/p1", attributes: {} },
+        price: { amount: 2999, currency: "EUR" }, merchant: { id: "m-1", name: "Shop", domain: "shop.example" },
+        availability: "in_stock", sourceStore: "reference", sponsored: false,
+      },
+    })).toMatchObject({ ok: true, offer: { id: "off-1" } });
+  });
   it("accepts a valid search+rank request and rejects a query without text", () => {
     expect(SearchRankRequestSchema.parse({ query: { text: "usb-c hub" } }).query.text).toBe(
       "usb-c hub",
@@ -117,6 +132,27 @@ describe("HTTP API wire schemas", () => {
     ).toBe(false);
   });
 
+  it("keeps successful child-source rows strict while preserving structured retry detail", () => {
+    expect(SourceStatusSchema.parse({ source: "shop.example", ok: true, offerCount: 2 })).toMatchObject({ ok: true });
+    expect(SourceStatusSchema.parse({
+      source: "down.example", ok: false,
+      error: { store: "shopify", code: "rate_limited", message: "source rate limit reached", retryable: true, retryAfterMs: 250 },
+    })).toMatchObject({ ok: false, error: { retryAfterMs: 250 } });
+    expect(SourceStatusSchema.safeParse({ source: "down.example", ok: false }).success).toBe(false);
+    expect(SourceStatusSchema.safeParse({ source: "shop.example", ok: true, offerCount: 1, headers: {} }).success).toBe(false);
+    expect(SourceStatusSchema.safeParse({
+      source: "down.example", ok: false,
+      error: { store: "shopify", code: "timeout", message: "timed out", retryable: true, details: { authorization: "Bearer secret", rawBody: "secret", profileUrl: "https://secret.example" } },
+    }).success).toBe(false);
+    expect(SourceStatusSchema.safeParse({
+      source: "down.example", ok: false,
+      error: { store: "shopify", code: "timeout", message: "Authorization: Bearer secret", retryable: true },
+    }).success).toBe(false);
+    for (const source of ["*.example.com", "HTTPS://shop.example/path", "user@shop.example", "Shop.Example", `${"a".repeat(64)}.example`]) {
+      expect(SourceStatusSchema.safeParse({ source, ok: true, offerCount: 0 }).success).toBe(false);
+    }
+  });
+
   it("search response requires ranked results with reasons and per-store statuses", () => {
     const res = SearchRankResponseSchema.parse({
       results: [
@@ -141,6 +177,37 @@ describe("HTTP API wire schemas", () => {
     expect(
       SearchRankResponseSchema.safeParse({
         results: [{ ...res.results[0]!, reasons: [] }],
+        storeStatuses: res.storeStatuses,
+      }).success,
+    ).toBe(false);
+    expect(
+      SearchRankResponseSchema.safeParse({
+        results: [res.results[0]!, res.results[0]!],
+        storeStatuses: res.storeStatuses,
+      }).success,
+    ).toBe(false);
+
+    const manyResults = Array.from({ length: 25 }, (_, index) => ({
+      ...res.results[0]!,
+      offer: {
+        ...res.results[0]!.offer,
+        id: `offer-${index}`,
+        product: {
+          ...res.results[0]!.offer.product,
+          id: `product-${index}`,
+          url: `https://s.example/p${index}`,
+        },
+      },
+    }));
+    expect(
+      SearchRankResponseSchema.safeParse({ results: manyResults, storeStatuses: res.storeStatuses }).success,
+    ).toBe(true);
+    expect(
+      SearchRankResponseSchema.safeParse({
+        results: Array.from({ length: 1_001 }, (_, index) => ({
+          ...manyResults[0]!,
+          offer: { ...manyResults[0]!.offer, id: `offer-${index}` },
+        })),
         storeStatuses: res.storeStatuses,
       }).success,
     ).toBe(false);

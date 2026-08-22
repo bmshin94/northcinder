@@ -1,6 +1,6 @@
 {
   "name": "@northcinder/remote",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Optional self-hosted NorthCinder read-only MCP bridge: search_products and get_trust_signal over Streamable HTTP, with no checkout or private local-data tools",
   "license": "MIT",
   "type": "module",

@@ -124,6 +124,16 @@ describe("etsy adapter — Open API v3 mapping", () => {
 });
 
 describe("etsy adapter — configuration honesty", () => {
+  it("preserves a provider 429 Retry-After as a typed rate_limited error", async () => {
+    const adapter = createEtsyAdapter({
+      apiKey: "key",
+      env: {},
+      fetchImpl: async () => new Response("{}", { status: 429, headers: { "Retry-After": "2" } }),
+    });
+    const result = await adapter.search({ text: "anything" }, { timeoutMs: 100 });
+    expect(result).toMatchObject({ ok: false, error: { code: "rate_limited", retryAfterMs: 2_000 } });
+  });
+
   it("missing key → structured not_configured naming ETSY_API_KEY, never fake success", async () => {
     const adapter = createEtsyAdapter({ env: {} });
     const search = await adapter.search({ text: "anything" }, { timeoutMs: 500 });

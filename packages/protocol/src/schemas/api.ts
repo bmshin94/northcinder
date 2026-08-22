@@ -1,6 +1,9 @@
 import { z } from "zod";
-import { MerchantSchema, RankedResultSchema, SearchQuerySchema, TrustSignalSchema } from "./core.js";
+import { MerchantSchema, OfferSchema, RankedResultSchema, SearchQuerySchema, TrustSignalSchema } from "./core.js";
+import { decisionOfferKey } from "./decision.js";
 import { StoreErrorSchema } from "./errors.js";
+import { SourceStatusSchema } from "../adapter/store-adapter.js";
+export { SourceStatusSchema } from "../adapter/store-adapter.js";
 
 /**
  * Client↔service HTTP wire schemas (the open half of the protocol, spec §2).
@@ -25,13 +28,14 @@ export const StoreStatusSchema = z.discriminatedUnion("ok", [
     ok: z.literal(true),
     offerCount: z.int().nonnegative(),
     durationMs: z.int().nonnegative(),
-  }),
+    sourceStatuses: z.array(SourceStatusSchema).optional(),
+  }).strict(),
   z.object({
     store: z.string().min(1),
     ok: z.literal(false),
     error: StoreErrorSchema,
     durationMs: z.int().nonnegative(),
-  }),
+  }).strict(),
 ]);
 export type StoreStatus = z.infer<typeof StoreStatusSchema>;
 
@@ -84,7 +88,15 @@ export type BrowserObservationReport = z.infer<typeof BrowserObservationReportSc
 
 export const SearchRankResponseSchema = z.object({
   /** Neutrality-ranked offers across all responding stores. */
-  results: z.array(RankedResultSchema),
+  results: z
+    .array(RankedResultSchema)
+    .max(1_000)
+    .refine(
+      (results) =>
+        new Set(results.map((result) => decisionOfferKey(result.offer.sourceStore, result.offer.id))).size ===
+        results.length,
+      "ranked results must use unique sourceStore/offerId tuples",
+    ),
   /** One entry per registered store — successes and failures alike. */
   storeStatuses: z.array(StoreStatusSchema),
   /** Registered fan-out stores; clients independently check this coverage. */
@@ -104,6 +116,19 @@ export const SearchRankResponseSchema = z.object({
   browserObservationReport: BrowserObservationReportSchema.optional(),
 });
 export type SearchRankResponse = z.infer<typeof SearchRankResponseSchema>;
+
+export const GetOfferRequestSchema = z.object({
+  store: z.string().min(1),
+  offerId: z.string().min(1),
+}).strict();
+export type GetOfferRequest = z.infer<typeof GetOfferRequestSchema>;
+
+/** Exact adapter result; an unavailable listing remains a typed result, not a substituted offer. */
+export const GetOfferResponseSchema = z.discriminatedUnion("ok", [
+  z.object({ ok: z.literal(true), offer: OfferSchema }),
+  z.object({ ok: z.literal(false), error: StoreErrorSchema }),
+]);
+export type GetOfferResponse = z.infer<typeof GetOfferResponseSchema>;
 
 export const TrustRequestSchema = z.object({
   merchant: MerchantSchema,

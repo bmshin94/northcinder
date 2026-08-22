@@ -5,6 +5,7 @@ import type {
   SearchQuery,
   TrustSignal,
 } from "../schemas/core.js";
+import { decisionOfferKey } from "../schemas/decision.js";
 import { trustKey } from "../trust/key.js";
 
 /**
@@ -14,7 +15,8 @@ import { trustKey } from "../trust/key.js";
  * client can vendor it, diff it, and verify the deployed service against it:
  *
  *  - PURE + DETERMINISTIC: no clock, no randomness, no I/O. Same inputs →
- *    byte-identical output (ties broken by score, then price, then offer id).
+ *    byte-identical output (ties broken by score, then price, then the
+ *    collision-free store-scoped offer tuple).
  *  - Scores derive ONLY from the user's criteria: price, spec match, delivery,
  *    availability, merchant trust, ethics preferences. There is no input a
  *    seller can pay to influence.
@@ -52,6 +54,12 @@ export const RANK_ELIMINATION_CODES = {
   SPEC_MISSING: "spec_missing",
   DELIVERY_MISSED: "delivery_missed",
   OUT_OF_STOCK: "out_of_stock",
+  REQUIRED_ATTRIBUTE_MISSING: "required_attribute_missing",
+  REQUIRED_PRICE_EXCEEDED: "required_price_exceeded",
+  REQUIRED_DELIVERY_MISSED: "required_delivery_missed",
+  REQUIRED_DELIVERY_UNKNOWN: "required_delivery_unknown",
+  REQUIRED_ETHICS_MISSING: "required_ethics_missing",
+  REQUIRED_AVAILABILITY_MISMATCH: "required_availability_mismatch",
 } as const;
 export type RankEliminationCode = (typeof RANK_ELIMINATION_CODES)[keyof typeof RANK_ELIMINATION_CODES];
 
@@ -72,10 +80,20 @@ export const RANK_WEIGHTS = {
   ethicsMatchFull: 8, // scaled by matched fraction
 } as const;
 
+/** Fixed points for explicit soft preferences; callers can name rules but cannot weight them. */
+export const PREFERRED_CRITERION_POINTS = {
+  attribute: 12,
+  max_price: 10,
+  delivery_by: 8,
+  ethics: 6,
+  availability: 4,
+} as const;
+
 interface Scored {
   offer: Offer;
   score: number;
   reasons: RankReason[];
+  requiredFailures: number;
 }
 
 function offerHaystack(offer: Offer): string {
@@ -110,6 +128,7 @@ function priceComponent(offer: Offer, all: Offer[]): { score: number; reasons: R
 
 function scoreOffer(offer: Offer, criteria: SearchQuery, all: Offer[], inputs: RankingInputs): Scored {
   let score = 0;
+  let requiredFailures = 0;
   const reasons: RankReason[] = [];
 
   // --- price (always present; guarantees non-empty reasons) ---
@@ -233,6 +252,202 @@ function scoreOffer(offer: Offer, criteria: SearchQuery, all: Offer[], inputs: R
     }
   }
 
+  // --- explicit named hard requirements ---
+  for (const criterion of criteria.criteria ?? []) {
+    if (criterion.importance !== "required") continue;
+    const audit = { criterionId: criterion.id, importance: criterion.importance } as const;
+    switch (criterion.kind) {
+      case "attribute": {
+        const matches = offerHaystack(offer).includes(criterion.value.toLowerCase());
+        reasons.push({
+          criterion: "spec_match",
+          detail: matches
+            ? `meets required criterion "${criterion.label}": ${criterion.value}`
+            : `missing required criterion "${criterion.label}": ${criterion.value}`,
+          ...audit,
+          ...(!matches ? { code: RANK_ELIMINATION_CODES.REQUIRED_ATTRIBUTE_MISSING } : {}),
+        });
+        if (!matches) requiredFailures++;
+        break;
+      }
+      case "max_price": {
+        const matches =
+          offer.price.currency === criterion.value.currency && offer.price.amount <= criterion.value.amount;
+        reasons.push({
+          criterion: "price",
+          detail: matches
+            ? `meets required criterion "${criterion.label}": ${offer.price.amount} ${offer.price.currency}`
+            : `fails required criterion "${criterion.label}": ${offer.price.amount} ${offer.price.currency} exceeds or cannot be compared with ${criterion.value.amount} ${criterion.value.currency}`,
+          ...audit,
+          ...(!matches ? { code: RANK_ELIMINATION_CODES.REQUIRED_PRICE_EXCEEDED } : {}),
+        });
+        if (!matches) requiredFailures++;
+        break;
+      }
+      case "delivery_by": {
+        const promised = offer.shipping?.deliveryBy;
+        const matches = promised !== undefined && promised <= criterion.value;
+        const code =
+          promised === undefined
+            ? RANK_ELIMINATION_CODES.REQUIRED_DELIVERY_UNKNOWN
+            : !matches
+              ? RANK_ELIMINATION_CODES.REQUIRED_DELIVERY_MISSED
+              : undefined;
+        reasons.push({
+          criterion: "delivery",
+          detail:
+            promised === undefined
+              ? `fails required criterion "${criterion.label}": delivery date is unknown`
+              : matches
+                ? `meets required criterion "${criterion.label}": ${promised}`
+                : `fails required criterion "${criterion.label}": ${promised} is after ${criterion.value}`,
+          ...audit,
+          ...(code !== undefined ? { code } : {}),
+        });
+        if (!matches) requiredFailures++;
+        break;
+      }
+      case "ethics": {
+        const matches = offerHaystack(offer).includes(criterion.value.toLowerCase());
+        reasons.push({
+          criterion: "ethics",
+          detail: matches
+            ? `meets required criterion "${criterion.label}": ${criterion.value}`
+            : `missing required criterion "${criterion.label}": ${criterion.value}`,
+          ...audit,
+          ...(!matches ? { code: RANK_ELIMINATION_CODES.REQUIRED_ETHICS_MISSING } : {}),
+        });
+        if (!matches) requiredFailures++;
+        break;
+      }
+      case "availability": {
+        const matches = offer.availability === criterion.value;
+        reasons.push({
+          criterion: "availability",
+          detail: matches
+            ? `meets required criterion "${criterion.label}": ${criterion.value}`
+            : `fails required criterion "${criterion.label}": ${offer.availability}, requested ${criterion.value}`,
+          ...audit,
+          ...(!matches ? { code: RANK_ELIMINATION_CODES.REQUIRED_AVAILABILITY_MISMATCH } : {}),
+        });
+        if (!matches) requiredFailures++;
+        break;
+      }
+    }
+  }
+
+  // --- explicit named soft preferences: fixed code-owned points only ---
+  for (const criterion of criteria.criteria ?? []) {
+    if (criterion.importance !== "preferred") continue;
+    const audit = { criterionId: criterion.id, importance: criterion.importance } as const;
+    switch (criterion.kind) {
+      case "attribute": {
+        const matches = offerHaystack(offer).includes(criterion.value.toLowerCase());
+        if (matches) score += PREFERRED_CRITERION_POINTS.attribute;
+        reasons.push({
+          criterion: "spec_match",
+          detail: `${matches ? "matches" : "does not match"} preferred criterion "${criterion.label}": ${criterion.value}`,
+          ...audit,
+        });
+        break;
+      }
+      case "max_price": {
+        const matches =
+          offer.price.currency === criterion.value.currency && offer.price.amount <= criterion.value.amount;
+        if (matches) score += PREFERRED_CRITERION_POINTS.max_price;
+        reasons.push({
+          criterion: "price",
+          detail: `${matches ? "matches" : "does not match"} preferred criterion "${criterion.label}": ${offer.price.amount} ${offer.price.currency} versus ${criterion.value.amount} ${criterion.value.currency}`,
+          ...audit,
+        });
+        break;
+      }
+      case "delivery_by": {
+        const promised = offer.shipping?.deliveryBy;
+        const matches = promised !== undefined && promised <= criterion.value;
+        if (matches) score += PREFERRED_CRITERION_POINTS.delivery_by;
+        reasons.push({
+          criterion: "delivery",
+          detail:
+            promised === undefined
+              ? `does not match preferred criterion "${criterion.label}": delivery date is unknown`
+              : `${matches ? "matches" : "does not match"} preferred criterion "${criterion.label}": ${promised} versus ${criterion.value}`,
+          ...audit,
+        });
+        break;
+      }
+      case "ethics": {
+        const matches = offerHaystack(offer).includes(criterion.value.toLowerCase());
+        if (matches) score += PREFERRED_CRITERION_POINTS.ethics;
+        reasons.push({
+          criterion: "ethics",
+          detail: `${matches ? "matches" : "does not match"} preferred criterion "${criterion.label}": ${criterion.value}`,
+          ...audit,
+        });
+        break;
+      }
+      case "availability": {
+        const matches = offer.availability === criterion.value;
+        if (matches) score += PREFERRED_CRITERION_POINTS.availability;
+        reasons.push({
+          criterion: "availability",
+          detail: `${matches ? "matches" : "does not match"} preferred criterion "${criterion.label}": ${offer.availability}, requested ${criterion.value}`,
+          ...audit,
+        });
+        break;
+      }
+    }
+  }
+
+  // --- explicit named tie breakers: reasons only, never score inputs ---
+  for (const criterion of criteria.criteria ?? []) {
+    if (criterion.importance !== "tie_breaker") continue;
+    const audit = { criterionId: criterion.id, importance: criterion.importance } as const;
+    switch (criterion.kind) {
+      case "attribute": {
+        const matches = offerHaystack(offer).includes(criterion.value.toLowerCase());
+        reasons.push({
+          criterion: "spec_match",
+          detail: `${matches ? "matches" : "does not match"} tie-break criterion "${criterion.label}": ${criterion.value}`,
+          ...audit,
+        });
+        break;
+      }
+      case "max_price":
+        reasons.push({
+          criterion: "price",
+          detail: `tie-break criterion "${criterion.label}": price ${offer.price.amount} ${offer.price.currency}`,
+          ...audit,
+        });
+        break;
+      case "delivery_by":
+        reasons.push({
+          criterion: "delivery",
+          detail: `tie-break criterion "${criterion.label}": delivery ${offer.shipping?.deliveryBy ?? "unknown"}`,
+          ...audit,
+        });
+        break;
+      case "ethics": {
+        const matches = offerHaystack(offer).includes(criterion.value.toLowerCase());
+        reasons.push({
+          criterion: "ethics",
+          detail: `${matches ? "matches" : "does not match"} tie-break criterion "${criterion.label}": ${criterion.value}`,
+          ...audit,
+        });
+        break;
+      }
+      case "availability": {
+        const matches = offer.availability === criterion.value;
+        reasons.push({
+          criterion: "availability",
+          detail: `${matches ? "matches" : "does not match"} tie-break criterion "${criterion.label}": ${offer.availability}, requested ${criterion.value}`,
+          ...audit,
+        });
+        break;
+      }
+    }
+  }
+
   // --- sponsored: labeling + de-prioritization ONLY, never a score input ---
   if (offer.sponsored) {
     reasons.push({
@@ -241,17 +456,57 @@ function scoreOffer(offer: Offer, criteria: SearchQuery, all: Offer[], inputs: R
     });
   }
 
-  return { offer, score, reasons };
+  return { offer, score, reasons, requiredFailures };
+}
+
+function compareTieBreakers(a: Offer, b: Offer, criteria: SearchQuery): number {
+  for (const criterion of criteria.criteria ?? []) {
+    if (criterion.importance !== "tie_breaker") continue;
+    switch (criterion.kind) {
+      case "attribute":
+      case "ethics": {
+        const aMatches = offerHaystack(a).includes(criterion.value.toLowerCase());
+        const bMatches = offerHaystack(b).includes(criterion.value.toLowerCase());
+        if (aMatches !== bMatches) return aMatches ? -1 : 1;
+        break;
+      }
+      case "max_price": {
+        const aComparable = a.price.currency === criterion.value.currency;
+        const bComparable = b.price.currency === criterion.value.currency;
+        if (aComparable !== bComparable) return aComparable ? -1 : 1;
+        if (aComparable && a.price.amount !== b.price.amount) return a.price.amount - b.price.amount;
+        break;
+      }
+      case "delivery_by": {
+        const aDelivery = a.shipping?.deliveryBy;
+        const bDelivery = b.shipping?.deliveryBy;
+        if (aDelivery === undefined && bDelivery !== undefined) return 1;
+        if (aDelivery !== undefined && bDelivery === undefined) return -1;
+        if (aDelivery !== undefined && bDelivery !== undefined && aDelivery !== bDelivery) {
+          return aDelivery < bDelivery ? -1 : 1;
+        }
+        break;
+      }
+      case "availability": {
+        const aMatches = a.availability === criterion.value;
+        const bMatches = b.availability === criterion.value;
+        if (aMatches !== bMatches) return aMatches ? -1 : 1;
+        break;
+      }
+    }
+  }
+  return 0;
 }
 
 /**
  * Deterministic neutrality ranking: `(offers, criteria) → RankedResult[]`.
  *
  * Ordering: non-sponsored tier strictly above sponsored tier (the brand
- * promise — primary); within it, buyable offers strictly above out-of-stock
- * ones (a buyer cannot buy what isn't there — secondary); within a tier by
- * criteria score (desc), then price (asc), then offer id (asc) — a total,
- * input-order-independent order.
+ * promise — primary); within it, candidates meeting every named requirement
+ * precede eliminated candidates, then buyable offers precede out-of-stock
+ * ones. Main fixed score follows. Named tie breakers compare typed facts only
+ * when those scores are equal, before the legacy price and collision-free
+ * store-scoped offer-tuple total-order fallbacks.
  */
 export function rankOffers(
   offers: Offer[],
@@ -263,12 +518,19 @@ export function rankOffers(
     const tierA = a.offer.sponsored ? 1 : 0;
     const tierB = b.offer.sponsored ? 1 : 0;
     if (tierA !== tierB) return tierA - tierB;
+    const eliminatedA = a.requiredFailures > 0 ? 1 : 0;
+    const eliminatedB = b.requiredFailures > 0 ? 1 : 0;
+    if (eliminatedA !== eliminatedB) return eliminatedA - eliminatedB;
     const oosA = a.offer.availability === "out_of_stock" ? 1 : 0;
     const oosB = b.offer.availability === "out_of_stock" ? 1 : 0;
     if (oosA !== oosB) return oosA - oosB;
     if (a.score !== b.score) return b.score - a.score;
+    const explicitTie = compareTieBreakers(a.offer, b.offer, criteria);
+    if (explicitTie !== 0) return explicitTie;
     if (a.offer.price.amount !== b.offer.price.amount) return a.offer.price.amount - b.offer.price.amount;
-    return a.offer.id < b.offer.id ? -1 : a.offer.id > b.offer.id ? 1 : 0;
+    const keyA = decisionOfferKey(a.offer.sourceStore, a.offer.id);
+    const keyB = decisionOfferKey(b.offer.sourceStore, b.offer.id);
+    return keyA < keyB ? -1 : keyA > keyB ? 1 : 0;
   });
   return scored.map(({ offer, score, reasons }) => ({ offer, score, reasons }));
 }

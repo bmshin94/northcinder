@@ -2,9 +2,11 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
   BrowserObservationSchema,
+  decisionOfferKey,
   rankOffers,
   trustKey,
   SearchRankRequestSchema,
+  GetOfferRequestSchema,
   TrustRequestSchema,
   type SearchRankResponse,
   type ServiceError,
@@ -13,6 +15,7 @@ import {
 } from "@northcinder/protocol";
 import { containsUnsafeAgentFacingText, type Orchestrator } from "../orchestrator/orchestrator.js";
 import type { TrustProvider } from "../trust/seed-trust.js";
+import type { DiscoverySourceReadiness } from "../adapters-from-env.js";
 
 /** Per-client static API key (MVP auth; env-configured in main.ts). */
 export interface ApiClientKey {
@@ -20,10 +23,15 @@ export interface ApiClientKey {
   key: string;
 }
 
+export type ServiceAuth =
+  | { kind: "local-loopback"; clientId: string }
+  | { kind: "api-keys"; keys: ApiClientKey[] };
+
 export interface ServiceDeps {
   orchestrator: Orchestrator;
   trust: TrustProvider;
-  apiKeys: ApiClientKey[];
+  auth: ServiceAuth;
+  discoverySources?: DiscoverySourceReadiness[];
   limits?: Partial<ServiceLimits>;
 }
 
@@ -47,8 +55,8 @@ const DEFAULT_LIMITS: ServiceLimits = {
 
 type Env = { Variables: { clientId: string } };
 
-function serviceError(c: Context, status: 400 | 401 | 404 | 408 | 413 | 429 | 500, err: ServiceError): Response {
-  return c.json(err, status);
+function serviceError(c: Context, status: 400 | 401 | 404 | 408 | 413 | 429 | 500, err: ServiceError, retryAfterSeconds?: number): Response {
+  return c.json(err, status, retryAfterSeconds === undefined ? undefined : { "Retry-After": String(retryAfterSeconds) });
 }
 
 type BodyResult = { ok: true; value: unknown } | { ok: false; code: "payload_too_large" | "invalid_request" | "request_timeout" };
@@ -116,7 +124,28 @@ function offerFromBrowserObservation(
   url.searchParams.sort();
   const productUrl = url.toString();
   const domain = url.hostname.toLowerCase();
-  const id = createHash("sha256").update(productUrl).digest("hex").slice(0, 24);
+  const identity = observation.identity;
+  const exactVariantTuple = JSON.stringify([
+    productUrl,
+    identity === undefined
+      ? null
+      : [
+          identity.canonical,
+          identity.variant,
+          identity.model ?? null,
+          identity.generation ?? null,
+          identity.identifiers
+            .map((identifier) => [identifier.scheme, identifier.value] as const)
+            .sort((a, b) => {
+              const keyA = JSON.stringify(a);
+              const keyB = JSON.stringify(b);
+              return keyA < keyB ? -1 : keyA > keyB ? 1 : 0;
+            }),
+        ],
+    Object.entries(observation.attributes ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
+    observation.condition ?? null,
+  ]);
+  const id = createHash("sha256").update(exactVariantTuple).digest("hex").slice(0, 24);
   return {
     id: `browser-${id}`,
     product: {
@@ -124,12 +153,16 @@ function offerFromBrowserObservation(
       title: observation.title,
       url: productUrl,
       ...(observation.brand !== undefined ? { brand: observation.brand } : {}),
+      ...(observation.identity !== undefined ? { identity: observation.identity } : {}),
       attributes: observation.attributes ?? {},
     },
     price: observation.price,
     merchant: { id: domain, name: observation.merchantName, domain },
     availability: observation.availability,
     ...(observation.shipping !== undefined ? { shipping: observation.shipping } : {}),
+    ...(observation.landedCost !== undefined ? { landedCost: observation.landedCost } : {}),
+    ...(observation.returnPolicy !== undefined ? { returnPolicy: observation.returnPolicy } : {}),
+    ...(observation.warranty !== undefined ? { warranty: observation.warranty } : {}),
     sourceStore: "agent_browser",
     sponsored: observation.placement !== "organic",
     fetchedAt: observation.observedAt,
@@ -149,40 +182,55 @@ export function createApp(deps: ServiceDeps): Hono<Env> {
   const requests = new Map<string, { startedAt: number; count: number }>();
   const inFlight = new Map<string, number>();
 
-  app.get("/health", (c) => c.json({ ok: true, service: "northcinder", version: "0.1.0" }));
+  app.get("/health", (c) =>
+    c.json({
+      ok: true,
+      service: "northcinder",
+      version: "0.2.0",
+      ...(deps.auth.kind === "local-loopback" && deps.discoverySources !== undefined
+        ? { discoverySources: deps.discoverySources }
+        : {}),
+    }),
+  );
 
-  // --- per-client key auth on every /v1 route ---
+  // --- explicit auth policy on every /v1 route ---
   app.use("/v1/*", async (c, next) => {
-    const header = c.req.header("authorization") ?? "";
-    const presented = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : "";
-    const client =
-      presented.length > 0 ? deps.apiKeys.find((k) => keyMatches(presented, k.key)) : undefined;
-    if (client === undefined) {
-      return serviceError(c, 401, {
-        code: "unauthorized",
-        message: "missing or invalid API key (Authorization: Bearer <key>)",
-      });
+    let clientId: string;
+    if (deps.auth.kind === "local-loopback") {
+      clientId = deps.auth.clientId;
+    } else {
+      const header = c.req.header("authorization") ?? "";
+      const presented = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : "";
+      const client =
+        presented.length > 0 ? deps.auth.keys.find((k) => keyMatches(presented, k.key)) : undefined;
+      if (client === undefined) {
+        return serviceError(c, 401, {
+          code: "unauthorized",
+          message: "missing or invalid API key (Authorization: Bearer <key>)",
+        });
+      }
+      clientId = client.clientId;
     }
-    c.set("clientId", client.clientId);
+    c.set("clientId", clientId);
     const now = Date.now();
-    const prior = requests.get(client.clientId);
+    const prior = requests.get(clientId);
     const window = prior !== undefined && now - prior.startedAt < 60_000 ? prior : { startedAt: now, count: 0 };
     if (window.count >= limits.requestsPerMinute) {
-      return serviceError(c, 429, { code: "rate_limited", message: "request rate limit exceeded" });
+      return serviceError(c, 429, { code: "rate_limited", message: "request rate limit exceeded" }, Math.max(1, Math.ceil((window.startedAt + 60_000 - now) / 1_000)));
     }
-    const active = inFlight.get(client.clientId) ?? 0;
+    const active = inFlight.get(clientId) ?? 0;
     if (active >= limits.maxConcurrentPerClient) {
-      return serviceError(c, 429, { code: "rate_limited", message: "too many concurrent requests", details: { reason: "concurrency" } });
+      return serviceError(c, 429, { code: "rate_limited", message: "too many concurrent requests", details: { reason: "concurrency" } }, 1);
     }
     window.count += 1;
-    requests.set(client.clientId, window);
-    inFlight.set(client.clientId, active + 1);
+    requests.set(clientId, window);
+    inFlight.set(clientId, active + 1);
     try {
       await next();
     } finally {
-      const remaining = (inFlight.get(client.clientId) ?? 1) - 1;
-      if (remaining === 0) inFlight.delete(client.clientId);
-      else inFlight.set(client.clientId, remaining);
+      const remaining = (inFlight.get(clientId) ?? 1) - 1;
+      if (remaining === 0) inFlight.delete(clientId);
+      else inFlight.set(clientId, remaining);
     }
   });
 
@@ -217,6 +265,9 @@ export function createApp(deps: ServiceDeps): Hono<Env> {
       const started = Date.now();
       const receivedAt = new Date().toISOString();
       const rejected: NonNullable<SearchRankResponse["browserObservationReport"]>["rejected"] = [];
+      const acceptedOfferKeys = new Set(
+        offers.map((offer) => decisionOfferKey(offer.sourceStore, offer.id)),
+      );
       for (const [index, raw] of parsed.data.browserObservations.entries()) {
         if (containsUnsafeAgentFacingText(raw)) {
           rejected.push({
@@ -235,7 +286,18 @@ export function createApp(deps: ServiceDeps): Hono<Env> {
           });
           continue;
         }
-        offers.push(offerFromBrowserObservation(observation.data, receivedAt));
+        const offer = offerFromBrowserObservation(observation.data, receivedAt);
+        const key = decisionOfferKey(offer.sourceStore, offer.id);
+        if (acceptedOfferKeys.has(key)) {
+          rejected.push({
+            index,
+            code: "invalid_observation",
+            message: "observation duplicates an accepted exact offer tuple",
+          });
+          continue;
+        }
+        acceptedOfferKeys.add(key);
+        offers.push(offer);
       }
       const accepted = parsed.data.browserObservations.length - rejected.length;
       browserObservationReport = {
@@ -276,6 +338,16 @@ export function createApp(deps: ServiceDeps): Hono<Env> {
       ...(browserObservationReport !== undefined ? { browserObservationReport } : {}),
     };
     return c.json(response);
+  });
+
+  app.post("/v1/offer", async (c) => {
+    const body = await readJsonBody(c, limits.maxBodyBytes, limits.bodyReadTimeoutMs);
+    if (!body.ok && body.code === "payload_too_large") return serviceError(c, 413, { code: "payload_too_large", message: `request body exceeds the ${limits.maxBodyBytes}-byte limit` });
+    if (!body.ok && body.code === "request_timeout") return serviceError(c, 408, { code: "invalid_request", message: "request body did not complete before the deadline" });
+    if (!body.ok) return serviceError(c, 400, { code: "invalid_request", message: "body must be JSON" });
+    const parsed = GetOfferRequestSchema.safeParse(body.value);
+    if (!parsed.success) return serviceError(c, 400, { code: "invalid_request", message: "request body does not match GetOfferRequest", details: { issues: parsed.error.issues } });
+    return c.json(await deps.orchestrator.getOffer(parsed.data.store, parsed.data.offerId));
   });
 
   // --- merchant trust signal ---

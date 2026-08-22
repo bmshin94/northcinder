@@ -35,8 +35,16 @@ import type { WatchStore } from "./store.js";
 export interface OfferSource {
   search(
     query: SearchQuery,
-  ): Promise<{ ok: true; offers: Offer[] } | { ok: false; error: { code: string; message: string } }>;
+  ): Promise<OfferSourceSearchResult>;
+  getOffer(
+    sourceStore: string,
+    offerId: string,
+  ): Promise<OfferSourceOfferResult>;
 }
+
+type OfferSourceFailure = { ok: false; error: { code: string; message: string; retryAfterMs?: number } };
+type OfferSourceSearchResult = { ok: true; offers: Offer[]; retryAfterMs?: number } | OfferSourceFailure;
+type OfferSourceOfferResult = { ok: true; offer: Offer } | OfferSourceFailure;
 
 export interface CheckDeps {
   store: WatchStore;
@@ -70,12 +78,6 @@ function matchesConstraints(offer: Offer, mustHave: string[]): boolean {
   return mustHave.every((attr) => haystack.includes(attr.toLowerCase()));
 }
 
-/** The query a check sends through the normal search path. */
-function queryFor(watch: Watch): SearchQuery {
-  if (watch.target.kind === "query") return watch.target.query;
-  return { text: watch.target.offer.product.title, maxResults: 50 };
-}
-
 /**
  * Picks the offer this watch is about:
  *   - offer watches: the SAME listing (sourceStore + offer id) — a different
@@ -97,6 +99,13 @@ function currentOffer(watch: Watch, offers: Offer[]): Offer | undefined {
   );
 }
 
+function nextEligibleCheckAt(watch: Watch, now: Date, retryAfterMs: number): string {
+  const expiresAt = Date.parse(watch.expiresAt);
+  const advertisedAt = now.getTime() + retryAfterMs;
+  const representable = Number.isFinite(advertisedAt) ? Math.min(advertisedAt, expiresAt) : expiresAt;
+  return new Date(representable).toISOString();
+}
+
 export async function checkWatch(watch: Watch, deps: CheckDeps): Promise<WatchCheckReport> {
   const now = (deps.now ?? (() => new Date()))();
   const checkedAt = now.toISOString();
@@ -113,7 +122,7 @@ export async function checkWatch(watch: Watch, deps: CheckDeps): Promise<WatchCh
       message:
         `agent-observed offers cannot be watched until a native store connection revalidates them; open ${watch.target.offer.product.url}`,
     };
-    deps.store.update(watch.id, { lastCheckedAt: checkedAt, lastStatus: { ok: false, error } });
+    deps.store.update(watch.id, { lastCheckedAt: checkedAt, lastFailureAt: checkedAt, lastStatus: { ok: false, error } });
     return report("source_error", { error });
   }
 
@@ -123,22 +132,42 @@ export async function checkWatch(watch: Watch, deps: CheckDeps): Promise<WatchCh
     return report("expired");
   }
 
-  const result = await deps.source.search(queryFor(watch));
+  if (watch.nextEligibleCheckAt !== undefined && Date.parse(watch.nextEligibleCheckAt) > now.getTime()) {
+    deps.store.update(watch.id, { lastCheckedAt: checkedAt, lastStatus: { ok: true, outcome: "cooldown_deferred" } });
+    return report("cooldown_deferred");
+  }
+
+  const result: OfferSourceSearchResult = watch.target.kind === "offer"
+    ? await deps.source.getOffer(watch.target.offer.sourceStore, watch.target.offer.id).then((refresh): OfferSourceSearchResult =>
+      refresh.ok ? { ok: true, offers: [refresh.offer] } : refresh,
+    )
+    : await deps.source.search(watch.target.query);
   if (!result.ok) {
+    if (result.error.code === "not_found") {
+      deps.store.update(watch.id, { lastCheckedAt: checkedAt, lastSuccessAt: checkedAt, nextEligibleCheckAt: null, lastStatus: { ok: true, outcome: "offer_not_found" } });
+      return report("offer_not_found");
+    }
     // Structured failure: the watch STAYS ACTIVE and is retried next tick.
-    deps.store.update(watch.id, { lastCheckedAt: checkedAt, lastStatus: { ok: false, error: result.error } });
+    deps.store.update(watch.id, {
+      lastCheckedAt: checkedAt, lastFailureAt: checkedAt, lastStatus: { ok: false, error: result.error },
+      ...(result.error.retryAfterMs !== undefined ? { nextEligibleCheckAt: nextEligibleCheckAt(watch, now, result.error.retryAfterMs) } : {}),
+    });
     return report("source_error", { error: result.error });
   }
 
+  const successEligibility: { nextEligibleCheckAt: string | null } = result.retryAfterMs === undefined
+    ? { nextEligibleCheckAt: null }
+    : { nextEligibleCheckAt: nextEligibleCheckAt(watch, now, result.retryAfterMs) };
+
   const offer = currentOffer(watch, result.offers);
   if (offer === undefined) {
-    deps.store.update(watch.id, { lastCheckedAt: checkedAt, lastStatus: { ok: true, outcome: "offer_not_found" } });
+    deps.store.update(watch.id, { lastCheckedAt: checkedAt, lastSuccessAt: checkedAt, ...successEligibility, lastStatus: { ok: true, outcome: "offer_not_found" } });
     return report("offer_not_found");
   }
 
   const price = offer.price;
   if (price.amount > watch.targetPrice.amount) {
-    deps.store.update(watch.id, { lastCheckedAt: checkedAt, lastPrice: price, lastStatus: { ok: true, outcome: "above_target" } });
+    deps.store.update(watch.id, { lastCheckedAt: checkedAt, lastPrice: price, lastSuccessAt: checkedAt, ...successEligibility, lastStatus: { ok: true, outcome: "above_target" } });
     return report("above_target", { currentPrice: price });
   }
 
@@ -146,7 +175,7 @@ export async function checkWatch(watch: Watch, deps: CheckDeps): Promise<WatchCh
   const bucket = priceBucket(price, watch.targetPrice);
   const dedupeKey = `${watch.id}:${bucket}`;
   if (watch.notifiedBuckets.includes(bucket)) {
-    deps.store.update(watch.id, { lastCheckedAt: checkedAt, lastPrice: price, lastStatus: { ok: true, outcome: "target_hit_deduped" } });
+    deps.store.update(watch.id, { lastCheckedAt: checkedAt, lastPrice: price, lastSuccessAt: checkedAt, ...successEligibility, lastStatus: { ok: true, outcome: "target_hit_deduped" } });
     return report("target_hit_deduped", { currentPrice: price });
   }
 
@@ -164,12 +193,14 @@ export async function checkWatch(watch: Watch, deps: CheckDeps): Promise<WatchCh
   });
   if (!sent.ok) {
     // NOT marked delivered — the same bucket retries next tick (at-least-once).
-    deps.store.update(watch.id, { lastCheckedAt: checkedAt, lastPrice: price, lastStatus: { ok: false, error: sent.error } });
+    deps.store.update(watch.id, { lastCheckedAt: checkedAt, lastPrice: price, lastFailureAt: checkedAt, ...successEligibility, lastStatus: { ok: false, error: sent.error } });
     return report("notify_failed", { currentPrice: price, error: sent.error });
   }
   deps.store.update(watch.id, {
     lastCheckedAt: checkedAt,
     lastPrice: price,
+    lastSuccessAt: checkedAt,
+    ...successEligibility,
     lastStatus: { ok: true, outcome: "target_hit_notified" },
     notifiedBuckets: [...watch.notifiedBuckets, bucket],
   });

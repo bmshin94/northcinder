@@ -1,22 +1,18 @@
+import { validateCredentialedBaseUrl } from "@northcinder/protocol";
+
 /**
  * Configuration and logging boundary for the remote bridge's upstream URL.
  * Userinfo is not supported: the bridge authenticates with NORTHCINDER_SERVICE_KEY,
  * and accepting credentials in an URL risks exposing them through diagnostics.
  */
 export function parseRemoteServiceUrl(value: string): string {
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    throw new Error("NORTHCINDER_SERVICE_URL must be a valid HTTP(S) URL");
+  const validated = validateCredentialedBaseUrl(value, { allowLoopbackHttp: true });
+  if (!validated.ok) {
+    throw new Error(
+      "NORTHCINDER_SERVICE_URL must use HTTPS, except explicit loopback HTTP, and must not contain URL userinfo, query, or fragment; use NORTHCINDER_SERVICE_KEY",
+    );
   }
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new Error("NORTHCINDER_SERVICE_URL must be an HTTP(S) URL");
-  }
-  if (url.username || url.password) {
-    throw new Error("NORTHCINDER_SERVICE_URL must not contain URL userinfo; use NORTHCINDER_SERVICE_KEY");
-  }
-  return url.toString();
+  return validated.url.toString();
 }
 
 /** Keep the self-hoster's topology and any future URL components out of startup logs. */

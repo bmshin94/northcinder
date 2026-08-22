@@ -1,4 +1,5 @@
 import type { RankedResult, SearchQuery, TrustSignal } from "../schemas/core.js";
+import { decisionOfferKey } from "../schemas/decision.js";
 import { rankOffers } from "./rank.js";
 
 /**
@@ -28,7 +29,7 @@ export type RankingVerification =
   | {
       verified: false;
       divergences: RankingDivergence[];
-      /** Offer keys (`sourceStore:offerId`) in recomputed (correct) order. */
+      /** Canonical JSON `[sourceStore, offerId]` keys in recomputed (correct) order. */
       expectedOrder: string[];
       /** Offer keys in the order the service actually returned. */
       actualOrder: string[];
@@ -37,7 +38,7 @@ export type RankingVerification =
 
 /** Offers are only unique within a store's catalog — key by store + id. */
 function offerKey(r: RankedResult): string {
-  return `${r.offer.sourceStore}:${r.offer.id}`;
+  return decisionOfferKey(r.offer.sourceStore, r.offer.id);
 }
 
 /**

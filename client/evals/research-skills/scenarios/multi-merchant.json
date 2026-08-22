@@ -1,0 +1,51 @@
+{
+  "scenarioId": "multi-merchant",
+  "skill": "seller-research",
+  "agentInput": {
+    "scenarioId": "multi-merchant",
+    "task": "Research where to buy the exact headphones using only the supplied seller records. Do not assess headphone quality. Do not browse, call tools, inspect repository files, or dispatch another agent. Keep MarketHub platform evidence separate from AudioDepot LLC evidence.",
+    "buyerRequest": "Research where to buy the exact NovaAudio QuietArc Q4, black, with a US warranty.",
+    "subject": "AudioDepot LLC's MarketHub storefront is the candidate seller; NovaAudio's direct US store is a distinct comparison merchant.",
+    "sourceRecords": [
+      { "id": "market-listing", "type": "marketplace checkout disclosure", "ownership": "MarketHub", "record": "Sold by AudioDepot LLC and fulfilled by MarketHub; terms name AudioDepot LLC merchant of record and MarketHub payment processor." },
+      { "id": "platform-reputation", "type": "platform marketing", "ownership": "MarketHub", "record": "MarketHub advertises a 4.9/5 platform-wide rating and buyer guarantee; this does not establish AudioDepot behavior." },
+      { "id": "audiodepot-profile", "type": "marketplace seller profile", "ownership": "MarketHub/AudioDepot", "record": "98% positive across 420 sales; only 12 electronics ratings and no dates shown." },
+      { "id": "audiodepot-policy", "type": "official seller return policy", "ownership": "AudioDepot LLC", "record": "30-day returns; opened-box restocking is unstated; manufacturer handles warranty." },
+      { "id": "business-registry", "type": "state business registry", "ownership": "state registry", "record": "AudioDepot LLC is active at the stated address for four years." },
+      { "id": "buyer-outcomes", "type": "independent buyer outcomes", "ownership": "independent buyers", "record": "Three recent exact-seller reports: two correct deliveries; one defective unit was redirected to manufacturer and return shipping was not reimbursed." },
+      { "id": "brand-direct", "type": "manufacturer direct-store policy", "ownership": "NovaAudio", "record": "NovaAudio's distinct US direct store is merchant of record, allows 30-day opened-item returns with no restocking fee, owns warranty handling, and costs 8% more." }
+    ],
+    "outputContract": {
+      "format": "json_only",
+      "instruction": "Write one raw JSON object only, with no Markdown fence or surrounding status envelope. Copy scenarioId and requiredSubjectIdentity exactly. Every factual claim must cite supplied source IDs and classify source relationship and use. Treat the brand-direct source as a different merchant, not evidence about AudioDepot.",
+      "requiredSubjectIdentity": "AudioDepot LLC storefront on MarketHub — merchant of record: AudioDepot LLC — buyer geography: US",
+      "requiredTopLevelFields": ["scenarioId", "subjectIdentity", "selectedSourceIds", "claims", "unknowns", "conflicts", "counterevidenceSourceIds", "checklistItemIds", "provisional"],
+      "claimFields": { "claim": "non-empty string", "subjectIdentity": "exact requiredSubjectIdentity", "sourceIds": "non-empty array of supplied source IDs", "sourceRelationship": "primary | independent | owner | commercial | unknown", "sourceUse": "subject_evidence | counterevidence | commercial_claim | context_only", "confidence": "high | medium | low | unverified" },
+      "conflictFields": { "description": "non-empty string", "sourceIds": "non-empty array of supplied source IDs" },
+      "arrayFields": { "selectedSourceIds": "source IDs actually used", "unknowns": "plain-language unknowns", "conflicts": "conflict objects", "counterevidenceSourceIds": "source IDs used for downside or contrary evidence", "checklistItemIds": "canonical skill checklist IDs completed or kept open" },
+      "provisional": "boolean"
+    }
+  },
+  "rubric": {
+    "expectedSubjectIdentity": "AudioDepot LLC storefront on MarketHub — merchant of record: AudioDepot LLC — buyer geography: US",
+    "sources": {
+      "market-listing": { "relationship": "primary" },
+      "platform-reputation": { "relationship": "commercial" },
+      "audiodepot-profile": { "relationship": "commercial" },
+      "audiodepot-policy": { "relationship": "primary" },
+      "business-registry": { "relationship": "primary" },
+      "buyer-outcomes": { "relationship": "independent" },
+      "brand-direct": { "relationship": "primary" }
+    },
+    "requiredSelectedSourceIds": ["market-listing", "platform-reputation", "audiodepot-policy", "business-registry", "buyer-outcomes", "brand-direct"],
+    "forbiddenSubjectEvidenceSourceIds": ["platform-reputation", "brand-direct"],
+    "forbiddenIndependentSourceIds": ["market-listing", "platform-reputation", "audiodepot-profile", "audiodepot-policy", "business-registry", "brand-direct"],
+    "requiredCounterevidenceSourceIds": ["buyer-outcomes", "brand-direct"],
+    "requiredConflictSourceGroups": [["audiodepot-policy", "buyer-outcomes"]],
+    "minimumUnknowns": 1,
+    "requiredChecklistItemIds": ["seller.identity", "seller.platform-separation", "seller.policies", "seller.fulfillment-contact", "seller.domain-business-records", "seller.independent-outcomes", "seller.commercial-claims", "seller.red-flags", "seller.counterevidence", "seller.unknowns", "seller.stop-receipt"],
+    "materialDownside": "AudioDepot's opened-box restocking and return-shipping terms are unresolved, and a recent defective-unit report describes unreimbursed return shipping; brand-direct costs more but gives clearer recourse.",
+    "stopCondition": "Decision-relevant AudioDepot opened-item/restocking and warranty-return recourse remain unresolved.",
+    "mustBeProvisional": true
+  }
+}

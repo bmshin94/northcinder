@@ -1,97 +1,32 @@
 # @northcinder/watches
 
-Standing price watches: when a watched offer (or standing query) reaches your
-target price, NorthCinder **notifies** you.
+NorthCinder price watches notify the buyer when an exact offer or standing query reaches its target. A watch never buys. Opening the product link and starting a separate purchase authorization remains the buyer's choice.
 
-**A watch never buys.** There is no code path from a watch to checkout — this
-package has no dependency on `@northcinder/checkout`, and an architectural test
-(`test/no-checkout-path.test.ts`) fails the build if anyone ever adds one.
-A notification only deep-links the product page; buying still requires the
-normal, explicit, per-purchase human authorization flow.
+## Scheduler
 
-## What's in the box
-
-- **Store** — one `watches.json` (0600) in the NorthCinder config dir; atomic
-  write-then-rename; fail-closed reads. Shared by the MCP tools
-  (`create_watch` / `list_watches` / `cancel_watch`), the `northcinder-watch`
-  scheduler, and the dashboard.
-- **Checker** — re-fetches current offers through the client's existing
-  budgeted service path (or any `OfferSource`), compares against the target,
-  persists `lastCheckedAt`/`lastPrice`/`lastStatus` (crash-safe, idempotent
-  resume). A store/adapter failure is a structured status; the watch stays
-  active and retries next tick. Watches auto-expire (default ~6 months).
-- **Notifications** — at-least-once, with a persisted dedupe ledger keyed by
-  `watchId + priceBucket` (bucket = 1% of the target price), so a restarted
-  scheduler never re-spams the same hit, while a further real price drop is
-  news and notifies again.
-- **`Notifier`** — minimal interface (`id` + `send`) with four
-  implementations: `ntfy`, `stderr`, `file` (JSONL, 0600), `webhook`.
-
-## Running the scheduler
-
-The `northcinder-watch` bin ships with `@northcinder/client`. Two modes, no daemon
-manager needed:
+The `northcinder-watch` command performs the checks. The MCP server only creates and manages watch records; it does not run a hidden background loop.
 
 ```sh
-northcinder-watch --once             # one tick over all active watches, then exit
-northcinder-watch --interval 900     # long-running loop (seconds; default 900)
+northcinder-watch --once
+northcinder-watch --interval 900
 ```
 
-Environment: the same `NORTHCINDER_SERVICE_URL` / `NORTHCINDER_CLIENT_KEY` /
-`NORTHCINDER_CONFIG_DIR` as `northcinder-mcp`, plus `NORTHCINDER_NTFY_TOPIC`,
-`NORTHCINDER_NTFY_BASE_URL` (default `https://ntfy.sh`), `NORTHCINDER_WATCH_INTERVAL_S`.
+Exact-offer watches refresh the stored source and offer id. Query watches share identical searches within one tick. Provider cooldowns, last success, last failure, current price, and next eligible check time are stored with the watch.
 
-### cron (every 15 minutes)
+Successful notifications are deduplicated by watch and price bucket. A crash after the destination accepts a message but before the local marker is stored can cause one later duplicate. Delivery is therefore at least once.
 
-```cron
-*/15 * * * * NORTHCINDER_SERVICE_URL=http://127.0.0.1:8790 NORTHCINDER_CLIENT_KEY=… NORTHCINDER_NTFY_TOPIC=… /usr/local/bin/northcinder-watch --once >> ~/.config/northcinder/watch-cron.log 2>&1
-```
+## Notification destinations
 
-`--once` exits **1 when every check failed** (service unreachable / nothing
-deliverable), so cron's failure mail / your monitoring sees a fully-failed
-tick. Partial failure — some watches erroring while others check fine — is a
-normal, reported state and exits 0.
+The model-facing `create_watch` tool can select only:
 
-### launchd (macOS)
+- stderr;
+- the fixed `notifications.jsonl` file inside the buyer's config directory; or
+- the scheduler's preconfigured `NORTHCINDER_NTFY_TOPIC`.
 
-`~/Library/LaunchAgents/com.northcinder.watch.plist`:
+The caller cannot choose a file path, ntfy bearer topic, or webhook URL. Channel details are not returned in MCP results or audit lines.
 
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-  <key>Label</key><string>com.northcinder.watch</string>
-  <key>ProgramArguments</key><array>
-    <string>/usr/local/bin/northcinder-watch</string>
-    <string>--once</string>
-  </array>
-  <key>StartInterval</key><integer>900</integer>
-  <key>EnvironmentVariables</key><dict>
-    <key>NORTHCINDER_SERVICE_URL</key><string>http://127.0.0.1:8790</string>
-    <key>NORTHCINDER_CLIENT_KEY</key><string>REPLACE_ME</string>
-    <key>NORTHCINDER_NTFY_TOPIC</key><string>REPLACE_ME</string>
-  </dict>
-  <key>StandardErrorPath</key><string>/tmp/northcinder-watch.log</string>
-</dict></plist>
-```
+Older watch files may contain a custom file path, ntfy topic, or webhook. The scheduler rejects file targets outside the buyer's config directory. Legacy webhooks require HTTPS, cannot contain URL credentials or fragments, cannot use localhost or an IP literal, and cannot redirect. NorthCinder does not resolve the hostname before the request, so DNS resolution and rebinding remain boundaries for an operator who retains a legacy webhook.
 
-Load it with `launchctl load ~/Library/LaunchAgents/com.northcinder.watch.plist`.
+The public ntfy service has no account boundary for a topic. Anyone who knows the topic can read and publish notifications. Use a long random value, keep it in buyer-owned configuration, and consider a self-hosted ntfy instance when notification privacy requires it.
 
-## ntfy: your topic IS the secret
-
-ntfy (https://ntfy.sh) has no accounts on the public instance — **anyone who
-knows your topic name can read your notifications and post to them**. Treat
-the topic like a bearer token:
-
-- generate a long random topic, e.g. `openssl rand -hex 16`;
-- never reuse a guessable name (`northcinder`, your username, …);
-- NorthCinder stores it only in the 0600 `watches.json`/environment and never
-  echoes it into tool results, logs, audit lines, or error messages;
-- for stronger privacy, self-host ntfy and point `NORTHCINDER_NTFY_BASE_URL` at it.
-
-## Notification content
-
-Composed by code (never a model): watch name, current vs target price,
-merchant, and a link to the product page — and **no purchase action of any
-kind**. Opening the link and starting a normal authorization is always the
-human's move.
+Notification content is composed by code from the watch name, current and target price, merchant, product title, and product link. It contains no purchase action.

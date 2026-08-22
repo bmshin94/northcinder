@@ -136,6 +136,68 @@ describe("watch tools (watch): create_watch / list_watches / cancel_watch", () =
     expect(create).toContain("normal purchase authorization");
   });
 
+  it("annotates watch, approval, checkout, and calendar-refresh tools with their real side effects", async () => {
+    const tools = (await client.listTools()).tools;
+    const annotations = (name: string) => tools.find((tool) => tool.name === name)?.annotations;
+
+    expect(annotations("create_watch")).toEqual({
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    });
+    expect(annotations("cancel_watch")).toEqual({
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    });
+    expect(annotations("request_purchase_authorization")).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: false,
+    });
+    expect(annotations("approve_purchase")).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: true,
+      openWorldHint: false,
+    });
+    expect(annotations("decline_purchase")).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: true,
+      openWorldHint: false,
+    });
+    expect(annotations("complete_checkout")).toEqual({
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: true,
+    });
+  });
+
+  it("create_watch rejects caller-selected topics, paths, and webhooks at the MCP input boundary", async () => {
+    const unsafeChannels = [
+      { type: "ntfy", topic: "caller-selected-secret-topic" },
+      { type: "file", path: "/tmp/caller-selected-notifications.jsonl" },
+      { type: "webhook", url: "https://attacker.example/hook" },
+    ];
+
+    for (const [index, channel] of unsafeChannels.entries()) {
+      const name = `unsafe-channel-${index}`;
+      const result = await client.callTool({
+        name: "create_watch",
+        arguments: {
+          name,
+          query: { text: "fairphone" },
+          targetPrice: { amount: 55000, currency: "EUR" },
+          channel,
+        },
+      });
+      expect.soft(result.isError, JSON.stringify(channel)).toBe(true);
+      expect.soft(createWatchStore({ configDir }).list().some((watch) => watch.name === name)).toBe(false);
+    }
+  });
+
   it("create_watch refuses an offerId that was never returned in this session", async () => {
     const res = await client.callTool({
       name: "create_watch",
@@ -271,7 +333,7 @@ describe("watch tools (watch): create_watch / list_watches / cancel_watch", () =
         name: "Fairphone below 550",
         offerId: "item-1",
         targetPrice: { amount: 55000, currency: "EUR" },
-        channel: { type: "ntfy", topic: "super-secret-ntfy-topic" },
+        channel: { type: "ntfy" },
       },
     });
     expect(res.isError ?? false).toBe(false);
@@ -298,19 +360,18 @@ describe("watch tools (watch): create_watch / list_watches / cancel_watch", () =
     const persisted = createWatchStore({ configDir }).get(structured.watchId)!;
     expect(persisted.name).toBe("Fairphone below 550");
     expect(persisted.targetPrice).toEqual({ amount: 55000, currency: "EUR" });
-    expect(persisted.channel).toEqual({ type: "ntfy", topic: "super-secret-ntfy-topic" });
+    expect(persisted.channel).toEqual({ type: "ntfy" });
 
     const created = auditEvents().find((e) => e.type === "watch_created")!;
     expect(created.watchId).toBe(structured.watchId);
     expect(created.channelType).toBe("ntfy");
   });
 
-  it("LEAK DISCIPLINE: the ntfy topic (bearer secret) appears in NO tool result and NO audit line", async () => {
+  it("MCP-created ntfy watches persist no caller-selected bearer topic", async () => {
     const list = await client.callTool({ name: "list_watches", arguments: {} });
-    expect(JSON.stringify(list)).not.toContain("super-secret-ntfy-topic");
-    expect(readFileSync(auditPath, "utf8")).not.toContain("super-secret-ntfy-topic");
-    // …but it IS in the 0600 watches file, where it belongs.
-    expect(readFileSync(join(configDir, WATCHES_FILENAME), "utf8")).toContain("super-secret-ntfy-topic");
+    expect(JSON.stringify(list)).not.toContain("topic");
+    expect(readFileSync(auditPath, "utf8")).not.toContain("topic");
+    expect(readFileSync(join(configDir, WATCHES_FILENAME), "utf8")).not.toContain('"topic"');
   });
 
   it("create_watch accepts a standing query watch", async () => {
@@ -331,6 +392,11 @@ describe("watch tools (watch): create_watch / list_watches / cancel_watch", () =
   });
 
   it("list_watches lists both watches with redacted channel info", async () => {
+    createWatchStore({ configDir }).update(offerWatchId, {
+      lastSuccessAt: "2026-07-05T12:00:00.000Z",
+      lastFailureAt: "2026-07-05T11:00:00.000Z",
+      nextEligibleCheckAt: "2026-07-05T13:00:00.000Z",
+    });
     const res = await client.callTool({ name: "list_watches", arguments: {} });
     expect(res.isError ?? false).toBe(false);
     const structured = res.structuredContent as { watches: Array<Record<string, unknown>>; activeCount: number };
@@ -338,6 +404,11 @@ describe("watch tools (watch): create_watch / list_watches / cancel_watch", () =
     expect(structured.activeCount).toBe(2);
     expect(structured.watches[0]).not.toHaveProperty("channel");
     expect(structured.watches[0]!.channelType).toBe("ntfy");
+    expect(structured.watches[0]).toMatchObject({
+      lastSuccessAt: "2026-07-05T12:00:00.000Z",
+      lastFailureAt: "2026-07-05T11:00:00.000Z",
+      nextEligibleCheckAt: "2026-07-05T13:00:00.000Z",
+    });
     const text = (res.content as Array<{ text: string }>)[0]!.text;
     expect(text).toContain("Fairphone below 550");
     expect(text).toContain("550.00 EUR");

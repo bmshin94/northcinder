@@ -2,10 +2,7 @@ import { describe, expect, it } from "vitest";
 import { generateKeyPairSync, sign as edSign } from "node:crypto";
 import type { Offer, PurchaseMandate } from "@northcinder/protocol";
 import {
-  BRIER_MANDATE_SIGNING_DOMAIN,
   canonicalMandatePayload,
-  LEGACY_MANDATE_SIGNING_DOMAIN,
-  THENAGAIN_MANDATE_SIGNING_DOMAIN,
   createInMemoryNonceLedger,
   hasUnrepresentableShippingCurrency,
   issueMandate,
@@ -73,10 +70,13 @@ describe("hasUnrepresentableShippingCurrency — flags what offerTotal silently 
 });
 
 describe("mandate issuance", () => {
-  it("issues a schema-valid AP2-shaped mandate bound to the offer, merchant, cap, expiry, and a >=16-char nonce", () => {
+  it("issues a version-2 mandate carrying a signed exact-offer digest and fixed quantity", () => {
     const m = freshMandate();
+    expect(m.version).toBe(2);
     expect(m.constraints.offerId).toBe(OFFER.id);
     expect(m.constraints.merchantId).toBe("www.allbirds.com");
+    expect(m.constraints.offerDigest).toMatch(/^[a-f0-9]{64}$/);
+    expect(m.constraints.quantity).toBe(1);
     expect(m.constraints.maxAmount).toEqual({ amount: 12000, currency: "USD" });
     expect(m.signature.algorithm).toBe("ed25519");
     expect(m.signature.publicKey).toBe(keypair.publicKeyB64);
@@ -135,19 +135,100 @@ describe("invariant #4 battery — every bad mandate is rejected with a specific
     expect(consumeCalls).toBe(0);
   });
 
-  for (const [label, domain] of [
-    ["immediately previous", BRIER_MANDATE_SIGNING_DOMAIN],
-    ["earlier", THENAGAIN_MANDATE_SIGNING_DOMAIN],
-    ["original working", LEGACY_MANDATE_SIGNING_DOMAIN],
-  ] as const) it(`accepts a valid ${label} identity mandate signature from the trusted local key`, async () => {
+  for (const domain of [
+    "brier.purchase-mandate.v1",
+    "thenagain.purchase-mandate.v1",
+    "emptor.purchase-mandate.v1",
+  ] as const) it(`rejects a signature under retired domain ${domain}`, async () => {
     const m = freshMandate();
     const legacySignature = keypair.sign(canonicalMandatePayload({
+      version: m.version,
       id: m.id, intent: m.intent, offerId: m.constraints.offerId, merchantId: m.constraints.merchantId,
+      offerDigest: m.constraints.offerDigest, quantity: m.constraints.quantity,
       maxAmountMinor: m.constraints.maxAmount.amount, currency: m.constraints.maxAmount.currency,
       issuedAt: m.issuedAt, expiresAt: m.expiresAt, nonce: m.nonce,
     }, domain));
     const legacy = { ...m, signature: { ...m.signature, value: legacySignature } };
-    await expect(verifyMandate(legacy, OFFER, verifyOpts())).resolves.toMatchObject({ ok: true });
+    await expect(verifyMandate(legacy, OFFER, verifyOpts())).resolves.toMatchObject({
+      ok: false,
+      rejection: { code: "signature_invalid" },
+    });
+  });
+
+  it("rejects exact-offer substitutions before consuming the nonce", async () => {
+    const substitutions: Array<[string, Offer]> = [
+      ["source store", { ...OFFER, sourceStore: "shopify-other" }],
+      [
+        "merchant domain",
+        { ...OFFER, merchant: { ...OFFER.merchant, domain: "different.example" } },
+      ],
+      ["product id", { ...OFFER, product: { ...OFFER.product, id: "product-B" } }],
+      [
+        "variant attributes",
+        {
+          ...OFFER,
+          product: {
+            ...OFFER.product,
+            attributes: { "shopify:variantGid": "gid://shopify/ProductVariant/999" },
+          },
+        },
+      ],
+    ];
+
+    for (const [label, substitutedOffer] of substitutions) {
+      let consumeCalls = 0;
+      const mandate = freshMandate();
+      const result = await verifyMandate(mandate, substitutedOffer, {
+        trustedPublicKeys: [keypair.publicKeyB64],
+        ledger: {
+          async consume(): Promise<boolean> {
+            consumeCalls += 1;
+            return true;
+          },
+          async has(): Promise<boolean> {
+            return false;
+          },
+        },
+      });
+
+      expect.soft(result, label).toMatchObject({
+        ok: false,
+        rejection: { code: "offer_digest_mismatch" },
+      });
+      expect.soft(consumeCalls, label).toBe(0);
+    }
+  });
+
+  it("rejects quantity and digest substitutions without consuming the nonce", async () => {
+    const original = freshMandate();
+    const substitutions = [
+      {
+        ...original,
+        constraints: { ...original.constraints, quantity: 2 },
+      },
+      {
+        ...original,
+        constraints: { ...original.constraints, offerDigest: "b".repeat(64) },
+      },
+    ] as PurchaseMandate[];
+
+    for (const substituted of substitutions) {
+      let consumeCalls = 0;
+      const result = await verifyMandate(substituted, OFFER, {
+        trustedPublicKeys: [keypair.publicKeyB64],
+        ledger: {
+          async consume(): Promise<boolean> {
+            consumeCalls += 1;
+            return true;
+          },
+          async has(): Promise<boolean> {
+            return false;
+          },
+        },
+      });
+      expect.soft(result.ok).toBe(false);
+      expect.soft(consumeCalls).toBe(0);
+    }
   });
   it("accepts a genuine, in-budget, unexpired, unused mandate for the exact offer", async () => {
     const m = freshMandate();
@@ -276,10 +357,13 @@ describe("invariant #4 battery — every bad mandate is rejected with a specific
 describe("canonical signing payload", () => {
   it("is deterministic and covers {offer id, merchant, max amount+currency, expiry, nonce}", () => {
     const fields = {
+      version: 2 as const,
       id: "mandate_1",
       intent: "buy",
       offerId: OFFER.id,
       merchantId: "www.allbirds.com",
+      offerDigest: "a".repeat(64),
+      quantity: 1 as const,
       maxAmountMinor: 12000,
       currency: "USD",
       issuedAt: "2026-07-04T00:00:00.000Z",
@@ -289,7 +373,7 @@ describe("canonical signing payload", () => {
     const a = Buffer.from(canonicalMandatePayload(fields)).toString("utf8");
     const b = Buffer.from(canonicalMandatePayload({ ...fields })).toString("utf8");
     expect(a).toBe(b);
-    for (const v of [OFFER.id, "www.allbirds.com", "12000", "USD", "2026-07-04T00:15:00.000Z", "abcdefghijklmnop"]) {
+    for (const v of [OFFER.id, "www.allbirds.com", "a".repeat(64), "12000", "USD", "2026-07-04T00:15:00.000Z", "abcdefghijklmnop"]) {
       expect(a).toContain(v);
     }
     const c = Buffer.from(canonicalMandatePayload({ ...fields, maxAmountMinor: 12001 })).toString("utf8");

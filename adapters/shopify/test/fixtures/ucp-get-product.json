@@ -1,0 +1,22 @@
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "result": {
+    "structuredContent": {
+      "ucp": { "version": "2026-04-08", "status": "success" },
+      "product": {
+        "id": "gid://shopify/Product/1878275686469",
+        "title": "Women's Wool Runner - Natural Black (Black Sole)",
+        "description": { "plain": "A soft, washable wool running shoe." },
+        "url": "https://www.allbirds.com/products/womens-wool-runners-natural-black",
+        "price_range": { "min": { "amount": 11000, "currency": "USD" } },
+        "variants": [{
+          "id": "gid://shopify/ProductVariant/32262292013136",
+          "url": "https://www.allbirds.com/products/womens-wool-runners-natural-black?variant=32262292013136",
+          "price": { "amount": 11000, "currency": "USD" },
+          "availability": { "available": true }
+        }]
+      }
+    }
+  }
+}

@@ -3,6 +3,7 @@ import net from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   createReferenceAdapter,
+  GetOfferResponseSchema,
   SearchRankResponseSchema,
   ServiceErrorSchema,
   TrustResponseSchema,
@@ -23,7 +24,8 @@ beforeAll(async () => {
     trust: createSeedTrustProvider({
       allow: [{ domain: "reference.invalid", detail: "conformance reference store" }],
     }),
-    apiKeys: [{ clientId: "test-client", key: API_KEY }],
+    auth: { kind: "api-keys", keys: [{ clientId: "test-client", key: API_KEY }] },
+    discoverySources: [{ store: "configured-private-source", status: "ready" }],
   });
   server = serve({ fetch: app.fetch, port: 0 });
   const address = server.address();
@@ -36,11 +38,40 @@ afterAll(() => {
 });
 
 describe("HTTP API — live boot on an ephemeral port", () => {
+  it("round-trips a strict exact-offer refresh through POST /v1/offer", async () => {
+    const response = await fetch(`${baseUrl}/v1/offer`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${API_KEY}` },
+      body: JSON.stringify({ store: "reference", offerId: "ref-offer-fairphone" }),
+    });
+    expect(response.status).toBe(200);
+    expect(GetOfferResponseSchema.parse(await response.json())).toMatchObject({ ok: true, offer: { sourceStore: "reference", id: "ref-offer-fairphone" } });
+  });
+  it("allows the launcher-owned local loopback client to search without an API key", async () => {
+    const app = createApp({
+      orchestrator: createOrchestrator([createReferenceAdapter()], { adapterTimeoutMs: 500 }),
+      trust: createSeedTrustProvider({
+        allow: [{ domain: "reference.invalid", detail: "conformance reference store" }],
+      }),
+      auth: { kind: "local-loopback", clientId: "local" },
+    });
+
+    const response = await app.request("/v1/search", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ query: { text: "fairphone" } }),
+    });
+
+    expect(response.status).toBe(200);
+    const body = SearchRankResponseSchema.parse(await response.json());
+    expect(body.registeredStores).toEqual(["reference"]);
+  });
+
   it("bounds an authenticated incomplete TCP body and releases the same client's admission slot", async () => {
     const app = createApp({
       orchestrator: createOrchestrator([createReferenceAdapter()], { adapterTimeoutMs: 500 }),
       trust: createSeedTrustProvider({ allow: [{ domain: "reference.invalid", detail: "fixture" }] }),
-      apiKeys: [{ clientId: "slow-client", key: API_KEY }],
+      auth: { kind: "api-keys", keys: [{ clientId: "slow-client", key: API_KEY }] },
       limits: { bodyReadTimeoutMs: 80, maxConcurrentPerClient: 1 },
     });
     const slowServer = serve({ fetch: app.fetch, port: 0 });
@@ -160,6 +191,129 @@ describe("HTTP API — live boot on an ephemeral port", () => {
     });
     expect(body.registeredStores).toEqual(["agent_browser", "reference"]);
     expect(verifySearchRanking(body, { text: "fairphone" })).toEqual({ verified: true, comparedOffers: 2 });
+  });
+
+  it("derives distinct browser offer IDs from exact variant facts and rejects an exact duplicate despite price drift", async () => {
+    const observed = (variant: string, amount: number) => ({
+      productUrl: "https://buyer-shop.example/products/fairphone-5",
+      title: `Fairphone 5 ${variant}`,
+      price: { amount, currency: "EUR" },
+      availability: "in_stock",
+      merchantName: "Buyer Shop",
+      identity: {
+        canonical: `Fairphone 5 — ${variant}`,
+        variant,
+        identifiers: [],
+      },
+      attributes: { color: variant },
+      condition: "new",
+      placement: "organic",
+      observedAt: "2026-08-16T10:00:00.000Z",
+    });
+    const res = await fetch(`${baseUrl}/v1/search`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${API_KEY}` },
+      body: JSON.stringify({
+        query: { text: "fairphone" },
+        browserObservations: [
+          observed("Matte Black", 57_900),
+          observed("Sky Blue", 58_900),
+          observed("Matte Black", 56_900),
+        ],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = SearchRankResponseSchema.parse(await res.json());
+    const browserOffers = body.results.filter((result) => result.offer.sourceStore === "agent_browser");
+    expect(browserOffers).toHaveLength(2);
+    expect(new Set(browserOffers.map((result) => result.offer.id)).size).toBe(2);
+    expect(body.browserObservationReport).toEqual({
+      submitted: 3,
+      accepted: 2,
+      rejected: [
+        {
+          index: 2,
+          code: "invalid_observation",
+          message: "observation duplicates an accepted exact offer tuple",
+        },
+      ],
+    });
+  });
+
+  it("preserves parsed rich browser facts while rejecting a nested score without hiding safe or native offers", async () => {
+    const richObservation = {
+      productUrl: "https://buyer-shop.example/products/fairphone-5",
+      title: "Fairphone 5 128GB",
+      price: { amount: 57900, currency: "EUR" },
+      availability: "in_stock",
+      merchantName: "Buyer Shop",
+      identity: {
+        canonical: "Fairphone 5 — 128GB black — model FP5 — SKU FP5-128-BLK",
+        variant: "128GB black",
+        model: "FP5",
+        identifiers: [{ scheme: "sku", value: "FP5-128-BLK" }],
+      },
+      landedCost: {
+        components: [
+          { kind: "item_price", amount: { amount: 57900, currency: "EUR" } },
+          { kind: "shipping", amount: { amount: 1000, currency: "EUR" } },
+        ],
+        knownTotal: { amount: 58900, currency: "EUR" },
+        unknownComponents: [],
+        completeness: "complete",
+      },
+      returnPolicy: {
+        summary: "30-day returns",
+        sourceUrl: "https://buyer-shop.example/policies/returns",
+        observedAt: "2026-08-16T10:00:00.000Z",
+        windowDays: 30,
+        returnShippingPayer: "buyer",
+      },
+      warranty: {
+        summary: "24-month manufacturer warranty",
+        sourceUrl: "https://buyer-shop.example/policies/warranty",
+        observedAt: "2026-08-16T10:00:00.000Z",
+        durationMonths: 24,
+        responsibleParty: "Fairphone",
+      },
+      placement: "organic",
+      observedAt: "2026-08-16T10:00:00.000Z",
+    };
+    const attackerMarker = "NESTED_SCORE_ATTACKER_MARKER";
+    const res = await fetch(`${baseUrl}/v1/search`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${API_KEY}` },
+      body: JSON.stringify({
+        query: { text: "fairphone" },
+        browserObservations: [
+          {
+            ...richObservation,
+            landedCost: {
+              ...richObservation.landedCost,
+              components: [{ ...richObservation.landedCost.components[0], score: attackerMarker }],
+            },
+          },
+          richObservation,
+        ],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const responseText = await res.text();
+    expect(responseText).not.toContain(attackerMarker);
+    const body = SearchRankResponseSchema.parse(JSON.parse(responseText));
+    const observed = body.results.find((result) => result.offer.sourceStore === "agent_browser")!.offer;
+    expect(observed.product.identity).toEqual(richObservation.identity);
+    expect(observed.landedCost).toEqual(richObservation.landedCost);
+    expect(observed.returnPolicy).toEqual(richObservation.returnPolicy);
+    expect(observed.warranty).toEqual(richObservation.warranty);
+    expect(body.results.map((result) => result.offer.sourceStore)).toEqual(expect.arrayContaining(["reference", "agent_browser"]));
+    expect(body.browserObservationReport).toEqual({
+      submitted: 2,
+      accepted: 1,
+      rejected: [{ index: 0, code: "invalid_observation", message: "observation does not match the browser handoff schema" }],
+    });
   });
 
   it("reports one invalid browser observation without hiding valid or native offers", async () => {
@@ -520,7 +674,7 @@ describe("HTTP API — live boot on an ephemeral port", () => {
   it("GET /health is open and reports ok", async () => {
     const res = await fetch(`${baseUrl}/health`);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, service: "northcinder", version: "0.1.0" });
+    expect(await res.json()).toEqual({ ok: true, service: "northcinder", version: "0.2.0" });
   });
 });
 
@@ -537,7 +691,7 @@ describe("HTTP API — authenticated admission controls", () => {
         },
       },
       trust: createSeedTrustProvider({}),
-      apiKeys: [{ clientId: "limited-client", key: API_KEY }],
+      auth: { kind: "api-keys", keys: [{ clientId: "limited-client", key: API_KEY }] },
       limits: { maxConcurrentPerClient: 1, requestsPerMinute: 3 },
     });
     const server = serve({ fetch: app.fetch, port: 0 });
@@ -549,6 +703,7 @@ describe("HTTP API — authenticated admission controls", () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
       const concurrent = await fetch(url, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${API_KEY}` }, body: JSON.stringify({ query: { text: "two" } }) });
       expect(concurrent.status).toBe(429);
+      expect(concurrent.headers.get("retry-after")).toBe("1");
       expect(ServiceErrorSchema.parse(await concurrent.json())).toEqual({ code: "rate_limited", message: "too many concurrent requests", details: { reason: "concurrency" } });
       releaseSearch?.();
       expect((await first).status).toBe(200);
@@ -556,6 +711,7 @@ describe("HTTP API — authenticated admission controls", () => {
       expect((await fetch(url, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${API_KEY}` }, body: JSON.stringify({ query: { text: "four" } }) })).status).toBe(200);
       const rateLimited = await fetch(url, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${API_KEY}` }, body: JSON.stringify({ query: { text: "five" } }) });
       expect(rateLimited.status).toBe(429);
+      expect(Number(rateLimited.headers.get("retry-after"))).toBeGreaterThanOrEqual(1);
       expect(ServiceErrorSchema.parse(await rateLimited.json())).toEqual({ code: "rate_limited", message: "request rate limit exceeded" });
     } finally {
       releaseSearch?.();
@@ -636,7 +792,7 @@ describe("trust-map keying — colliding merchant ids get distinct signals", () 
         allow: [{ domain: "alpha.example", detail: "vetted test store" }],
         deny: [{ domain: "beta.example", detail: "known bad test store" }],
       }),
-      apiKeys: [{ clientId: "test-client", key: API_KEY }],
+      auth: { kind: "api-keys", keys: [{ clientId: "test-client", key: API_KEY }] },
     });
     collisionServer = serve({ fetch: app.fetch, port: 0 });
     const address = collisionServer.address();

@@ -12,7 +12,7 @@ body:
     attributes:
       label: NorthCinder version
       description: Run `npx northcinder --version` or provide the commit SHA.
-      placeholder: 0.1.2
+      placeholder: 0.2.0
     validations:
       required: true
 
@@ -63,5 +63,5 @@ body:
     attributes:
       label: Sensitive-data check
       options:
-        - label: I removed credentials, tokens, approval links, browser profiles, audit data, mail, and purchase records.
+        - label: I removed credentials, tokens, approval links, browser profiles, research evidence, audit data, mail, order outcomes, and purchase records.
           required: true

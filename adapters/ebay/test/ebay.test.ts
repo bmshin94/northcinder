@@ -124,6 +124,19 @@ describe("ebay adapter — Buy Browse mapping", () => {
 });
 
 describe("ebay adapter — configuration honesty", () => {
+  it("preserves a provider 429 Retry-After as a typed rate_limited error", async () => {
+    const adapter = createEbayAdapter({
+      clientId: "id",
+      clientSecret: "secret",
+      env: {},
+      fetchImpl: async (input) => String(input).includes("oauth2/token")
+        ? new Response(JSON.stringify({ access_token: "token", expires_in: 3600 }), { status: 200 })
+        : new Response("{}", { status: 429, headers: { "Retry-After": "2" } }),
+    });
+    const result = await adapter.search({ text: "anything" }, { timeoutMs: 100 });
+    expect(result).toMatchObject({ ok: false, error: { code: "rate_limited", retryAfterMs: 2_000 } });
+  });
+
   it("missing keys → structured not_configured naming the env vars, NEVER fake success", async () => {
     const adapter = createEbayAdapter({ env: {} });
     const search = await adapter.search({ text: "anything" }, { timeoutMs: 500 });

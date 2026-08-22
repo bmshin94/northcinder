@@ -8,6 +8,7 @@
  */
 import { appendFileSync, chmodSync, existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import { isIP } from "node:net";
 import { fetchWithBudget } from "@northcinder/adapter-kit";
 import type { Money } from "@northcinder/protocol";
 import { BRAND_NAME } from "./brand.js";
@@ -137,10 +138,10 @@ export function createFileNotifier(path: string): Notifier {
         appendFileSync(path, `${JSON.stringify(notification)}\n`, { mode: 0o600 });
         if (!existed) chmodSync(path, 0o600); // appendFileSync's mode is umask-filtered
         return { ok: true };
-      } catch (err) {
+      } catch {
         return {
           ok: false,
-          error: { code: "file_write_failed", message: err instanceof Error ? err.message : "notification file write failed" },
+          error: { code: "file_write_failed", message: "notification file write failed" },
         };
       }
     },
@@ -153,17 +154,34 @@ export interface WebhookNotifierOptions {
   fetchImpl?: typeof fetch;
 }
 
+function safeWebhookUrl(raw: string): URL | undefined {
+  try {
+    const url = new URL(raw);
+    const hostname = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    if (url.protocol !== "https:" || url.username !== "" || url.password !== "" || url.hash !== "") return undefined;
+    if (hostname === "localhost" || hostname.endsWith(".localhost") || isIP(hostname) !== 0) return undefined;
+    return url;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Webhook notifier: POSTs {title, body, notification} as JSON to the URL. */
 export function createWebhookNotifier(options: WebhookNotifierOptions): Notifier {
   const timeoutMs = options.timeoutMs ?? 10_000;
+  const url = safeWebhookUrl(options.url);
   return {
     id: "webhook",
     async send(notification) {
+      if (url === undefined) {
+        return { ok: false, error: { code: "webhook_url_unsafe", message: "webhook destination is not permitted" } };
+      }
       const { title, body } = formatNotification(notification);
       const result = await fetchWithBudget(
-        options.url,
+        url.toString(),
         {
           method: "POST",
+          redirect: "manual",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ title, body, notification }),
         },
@@ -171,6 +189,9 @@ export function createWebhookNotifier(options: WebhookNotifierOptions): Notifier
       );
       if (!result.ok) {
         return { ok: false, error: { code: "webhook_unreachable", message: `webhook delivery failed (${result.kind})` } };
+      }
+      if (result.status >= 300 && result.status < 400) {
+        return { ok: false, error: { code: "webhook_redirect_forbidden", message: "webhook redirects are not permitted" } };
       }
       if (result.status >= 400) {
         return { ok: false, error: { code: "webhook_http_error", message: `webhook delivery failed (HTTP ${result.status})` } };

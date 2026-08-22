@@ -153,4 +153,30 @@ describe("interpretQuery — profile-defaults merge with per-query precedence", 
     expect(out.overriddenProfileEntries).toEqual([]);
     expect(out.unmatchedQueryWords).toEqual(["wool", "sneakers"]);
   });
+
+  it("applies only matching subject, project, and category scopes", () => {
+    const subject = entry({ id: "pref_subject", kind: "ethics", flag: "repairable", scope: { kind: "subject", value: "dad" } });
+    const project = entry({ id: "pref_project", kind: "ethics", flag: "giftable", scope: { kind: "project", value: "birthday" } });
+    const category = entry({ id: "pref_category", kind: "ethics", flag: "vegan", scope: { kind: "category", value: "sneakers" } });
+    const out = interpretQuery({ text: "sneakers", buyerContext: { subject: "dad", project: "birthday" } }, [subject, project, category], NOW);
+    expect(out.criteria.ethicsFlags).toEqual(["repairable", "giftable", "vegan"]);
+  });
+
+  it("does not apply missing or non-matching scopes, or expired entries", () => {
+    const entries = [
+      entry({ id: "wrong_subject", kind: "ethics", flag: "repairable", scope: { kind: "subject", value: "mum" } }),
+      entry({ id: "missing_project", kind: "ethics", flag: "giftable", scope: { kind: "project", value: "birthday" } }),
+      entry({ id: "expired", kind: "ethics", flag: "expired", expiresAt: "2026-07-05T09:59:59.000Z" }),
+      entry({ id: "future", kind: "ethics", flag: "future", expiresAt: "2026-07-05T10:00:01.000Z" }),
+    ];
+    const out = interpretQuery({ text: "sneakers", buyerContext: { subject: "dad" } }, entries, NOW);
+    expect(out.criteria.ethicsFlags).toEqual(["future"]);
+  });
+
+  it("keeps explicit per-query criteria over a matching scoped preference", () => {
+    const scoped = entry({ kind: "budget", category: "sneakers", maxPrice: { amount: 12000, currency: "USD" }, scope: { kind: "project", value: "birthday" } });
+    const out = interpretQuery({ text: "sneakers", maxPrice: { amount: 9000, currency: "USD" }, buyerContext: { project: "birthday" } }, [scoped], NOW);
+    expect(out.criteria.maxPrice).toEqual({ amount: 9000, currency: "USD" });
+    expect(out.overriddenProfileEntries).toHaveLength(1);
+  });
 });

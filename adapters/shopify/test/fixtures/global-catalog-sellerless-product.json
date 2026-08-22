@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","id":1,"result":{"structuredContent":{"product":{"id":"gid://shopify/p/sellerless","title":"Sellerless Cluster","price_range":{"min":{"amount":1,"currency":"USD"}},"variants":[{"id":"gid://shopify/ProductVariant/one","url":"https://caller.example/products/one","price":{"amount":1,"currency":"USD"},"availability":{"available":true}}]}}}}}

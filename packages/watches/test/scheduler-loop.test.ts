@@ -30,6 +30,10 @@ describe("interval loop (long-running mode of the northcinder-watch bin)", () =>
         searches += 1;
         return { ok: true, offers: [OFFER] };
       },
+      async getOffer() {
+        searches += 1;
+        return { ok: true, offer: OFFER };
+      },
     };
     const summaries: WatchRunSummary[] = [];
     const controller = new AbortController();

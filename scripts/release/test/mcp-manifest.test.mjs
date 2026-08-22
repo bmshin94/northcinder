@@ -25,7 +25,7 @@ test("controlled client manifest validates against a freshly fetched official MC
   const manifest = generateManifest(join(ROOT, "client", "server.template.json"), coordinates);
   assert.equal(manifest.$schema, OFFICIAL_SCHEMA_URL);
   assert.deepEqual(validateOfficialSchema(manifest, schema), []);
-  assert.equal(manifest.packages[0].environmentVariables[1].name, "NORTHCINDER_CLIENT_KEY");
+  assert.ok(manifest.packages[0].environmentVariables.some((entry) => entry.name === "NORTHCINDER_CLIENT_KEY"));
 });
 
 test("controlled remote manifest validates against the current official MCP schema", () => {

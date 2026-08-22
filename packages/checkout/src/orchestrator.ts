@@ -24,6 +24,9 @@ export interface OrderRecord {
   orderId: string;
   createdAt: string;
   offerId: string;
+  sourceStore: string;
+  productTitle: string;
+  productBrand?: string;
   merchantId: string;
   /** Canonical merchant domain paired with merchantId to avoid local-history collisions. */
   merchantDomain: string;
@@ -156,6 +159,9 @@ export function createCheckoutOrchestrator(options: CheckoutOrchestratorOptions)
           orderId: `order_${randomUUID()}`,
           createdAt: now().toISOString(),
           offerId: offer.id,
+          sourceStore: offer.sourceStore,
+          productTitle: offer.product.title,
+          ...(offer.product.brand !== undefined ? { productBrand: offer.product.brand } : {}),
           merchantId: offer.merchant.id,
           merchantDomain: offer.merchant.domain,
           railId: rail.id,

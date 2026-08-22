@@ -46,10 +46,14 @@ describe("watch schemas (watch)", () => {
       lastCheckedAt: "2026-07-05T01:00:00.000Z",
       lastPrice: { amount: 58900, currency: "EUR" },
       lastStatus: { ok: true, outcome: "above_target" },
+      lastSuccessAt: "2026-07-05T01:00:00.000Z",
+      lastFailureAt: "2026-07-05T00:30:00.000Z",
+      nextEligibleCheckAt: "2026-07-05T02:00:00.000Z",
       notifiedBuckets: ["EUR:99"],
     });
     expect(parsed.lastPrice).toEqual({ amount: 58900, currency: "EUR" });
     expect(parsed.notifiedBuckets).toEqual(["EUR:99"]);
+    expect(parsed.nextEligibleCheckAt).toBe("2026-07-05T02:00:00.000Z");
   });
 
   it("rejects agent-observed offer targets until a native store connection revalidates them", () => {

@@ -1,7 +1,7 @@
 {
   "name": "@northcinder/adapter-woocommerce",
-  "version": "0.1.0",
-  "description": "NorthCinder WooCommerce adapter: the public, unauthenticated Store API (per-host fan-out, live by default)",
+  "version": "0.2.0",
+  "description": "NorthCinder WooCommerce adapter for buyer-configured hosts that expose the public Store API; coverage is reported per host",
   "license": "MIT",
   "type": "module",
   "engines": { "node": ">=20" },

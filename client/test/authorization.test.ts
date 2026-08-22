@@ -496,7 +496,7 @@ describe("approval regression — the approve→checkout window is sealed", () =
       const checkout = createClientCheckout({
         configDir,
         trustedPublicKeys: [keypair.publicKeyB64],
-        acpMerchants: { "mock.example": { baseUrl: merchant.baseUrl, apiKey: "mock_api_key" } },
+        acpMerchants: { "mock.example": { baseUrl: merchant.baseUrl, merchantDomain: "mock.example", apiKey: "mock_api_key" } },
         acpPaymentToken: "spt_test_token",
       });
 

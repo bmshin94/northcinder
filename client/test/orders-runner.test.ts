@@ -83,6 +83,23 @@ describe("runOrdersTick — a tick actually ingests the drop dir + polls IMAP + 
     expect(summary.reminders).toEqual([]);
     expect(ordersTickExitCode(summary)).toBe(0);
   });
+
+  it("combines return-window and scheduled lifecycle reports through the same transport", async () => {
+    const store = createOrderGraphStore(tmpConfigDir());
+    const order = store.importOrder({ merchantName: "Local Shop", orderDate: "2026-08-01T00:00:00.000Z" });
+    store.scheduleLifecycleReminder(order.id, { kind: "maintenance", remindOn: "2026-08-02", dueOn: "2026-08-10", detail: "Clean it." });
+    const sent: NtfyMessage[] = [];
+    const summary = await runOrdersTick({
+      store,
+      imapEnv: {},
+      orderFor: (orderId) => store.getOrder(orderId)?.order,
+      reminderTransport: collectingTransport(sent),
+      reminderDays: 3,
+      now: () => new Date("2026-08-03T00:00:00.000Z"),
+    });
+    expect(summary.reminders).toContainEqual(expect.objectContaining({ kind: "maintenance", orderId: order.id, outcome: "sent" }));
+    expect(sent).toHaveLength(1);
+  });
 });
 
 describe("ordersTickExitCode — cron/launchd must SEE a fully-failed tick", () => {

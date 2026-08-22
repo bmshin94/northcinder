@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 /**
- * LIVE verification of the Shopify storefront-MCP leg (no credentials needed).
- * Hits ≥2 real Shopify stores' public /api/mcp endpoints, validates every
+ * LIVE verification of current Shopify UCP catalog legs (no credential needed,
+ * but the buyer must provide their own UCP agent-profile URL).
+ * Hits ≥2 real Shopify storefront /api/ucp/mcp endpoints, validates every
  * returned offer against the protocol OfferSchema, and prints evidence.
  *
  * Run from adapters/shopify after `pnpm -r build`:  pnpm live-check
- * Override stores/query:  SHOPIFY_MCP_SHOPS=www.x.com,www.y.com LIVE_QUERY="coffee" pnpm live-check
+ * Override stores/query/profile: SHOPIFY_MCP_SHOPS=www.x.com,www.y.com
+ * SHOPIFY_UCP_AGENT_PROFILE_URL=https://agent.example/profile.json LIVE_QUERY="coffee" pnpm live-check
  */
 import { OfferSchema } from "@northcinder/protocol";
 import { createShopifyAdapter } from "../dist/index.js";
@@ -13,8 +15,13 @@ import { createShopifyAdapter } from "../dist/index.js";
 const shops = (process.env.SHOPIFY_MCP_SHOPS ?? "www.allbirds.com,www.rothys.com")
   .split(",").map((s) => s.trim()).filter(Boolean);
 const query = process.env.LIVE_QUERY ?? "shoes";
+const profileUrl = process.env.SHOPIFY_UCP_AGENT_PROFILE_URL;
+if (!profileUrl) {
+  console.error("[live-check] SHOPIFY_UCP_AGENT_PROFILE_URL is required for every Shopify UCP call");
+  process.exit(1);
+}
 
-const adapter = createShopifyAdapter({ shops, env: {} });
+const adapter = createShopifyAdapter({ shops, globalCatalog: { profileUrl }, env: {} });
 console.log(`[live-check] shops=${shops.join(", ")} query=${JSON.stringify(query)}`);
 
 const result = await adapter.search({ text: query, maxResults: 5 }, { timeoutMs: 20000 });
@@ -53,11 +60,11 @@ if (first) {
   }
 }
 
-// Global Catalog honesty check: without a key it must say not_configured.
+// Global Catalog honesty check: without a profile it must say not_configured.
 const bare = createShopifyAdapter({ env: {} });
 const unconfigured = await bare.search({ text: query }, { timeoutMs: 5000 });
 if (!unconfigured.ok && unconfigured.error.code === "not_configured") {
-  console.log("[live-check] Global Catalog without key → structured not_configured ✓");
+  console.log("[live-check] Global Catalog without profile → structured not_configured ✓");
 } else {
   console.error("[live-check] FAIL: unconfigured adapter did not report not_configured");
   process.exit(1);

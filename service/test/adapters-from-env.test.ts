@@ -1,9 +1,70 @@
 import { describe, expect, it } from "vitest";
 import { rankOffers } from "@northcinder/protocol";
-import { buildAdaptersFromEnv } from "../src/adapters-from-env.js";
+import * as adapterRegistry from "../src/adapters-from-env.js";
 import { createDemoSponsoredAdapter, DEMO_SPONSORED_STORE_ID } from "../src/demo/sponsored-demo-adapter.js";
 
+const { buildAdaptersFromEnv } = adapterRegistry;
+
+function discoverySources(env: Record<string, string | undefined>) {
+  const build = (adapterRegistry as typeof adapterRegistry & {
+    discoverySourcesFromEnv?: (source: Record<string, string | undefined>) => Array<{ store: string; status: string }>;
+  }).discoverySourcesFromEnv;
+  expect(build).toBeTypeOf("function");
+  return build?.(env) ?? [];
+}
+
 describe("buildAdaptersFromEnv — real-adapter service wiring (client integration)", () => {
+  it("reports the exact native discovery set as not_configured without contacting a provider", () => {
+    expect(discoverySources({})).toEqual([
+      { store: "amazon", status: "not_configured" },
+      { store: "ebay", status: "not_configured" },
+      { store: "etsy", status: "not_configured" },
+      { store: "shopify", status: "not_configured" },
+      { store: "woocommerce", status: "not_configured" },
+    ]);
+  });
+
+  it("reports locally valid configuration as ready without making a store request", () => {
+    expect(discoverySources({
+      AMAZON_SESSION_PROFILE: "/buyer/profile",
+      EBAY_CLIENT_ID: "buyer-app",
+      EBAY_CLIENT_SECRET: "buyer-secret",
+      ETSY_API_KEY: "buyer-etsy-key",
+      SHOPIFY_UCP_AGENT_PROFILE_URL: "https://agent.example/ucp-profile.json",
+      WOOCOMMERCE_STORE_HOSTS: "woo.example.com",
+    })).toEqual([
+      { store: "amazon", status: "ready" },
+      { store: "ebay", status: "ready" },
+      { store: "etsy", status: "ready" },
+      { store: "shopify", status: "ready" },
+      { store: "woocommerce", status: "ready" },
+    ]);
+  });
+
+  it("treats storefront hosts without the required UCP profile as invalid_configuration", () => {
+    expect(discoverySources({ SHOPIFY_MCP_SHOPS: "shop.example.com" })).toContainEqual({
+      store: "shopify",
+      status: "invalid_configuration",
+    });
+  });
+
+  it("treats a valid Shopify UCP profile alone as ready", () => {
+    expect(discoverySources({ SHOPIFY_UCP_AGENT_PROFILE_URL: "https://agent.example/ucp-profile.json" })).toContainEqual({
+      store: "shopify",
+      status: "ready",
+    });
+  });
+
+  it("reports a partial credential pair as invalid_configuration rather than ready", () => {
+    expect(discoverySources({ EBAY_CLIENT_ID: "buyer-app" })).toEqual([
+      { store: "amazon", status: "not_configured" },
+      { store: "ebay", status: "invalid_configuration" },
+      { store: "etsy", status: "not_configured" },
+      { store: "shopify", status: "not_configured" },
+      { store: "woocommerce", status: "not_configured" },
+    ]);
+  });
+
   it("registers all five real store adapters regardless of configuration (each degrades itself)", () => {
     const adapters = buildAdaptersFromEnv({});
     const ids = adapters.map((a) => a.manifest.id).sort();

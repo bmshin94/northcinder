@@ -37,11 +37,82 @@ function fixtureOffer(store: string, id: string): Offer {
 }
 
 describe("aggregation orchestrator — graceful fan-out", () => {
+  it("forwards partial child-source failures while keeping the parent store successful", async () => {
+    const adapter: StoreAdapter = {
+      manifest: manifest("shopify"),
+      async search() {
+        return { ok: true, offers: [fixtureOffer("shopify", "one")], sourceStatuses: [
+          { source: "catalog.shopify.com", ok: true, offerCount: 1 },
+          { source: "broken-shop.example", ok: false, error: storeError("shopify", "timeout", "source request timed out", { retryable: true }) },
+        ] };
+      },
+      async getOffer() { return { ok: false, error: storeError("shopify", "not_found", "n/a", { retryable: false }) }; },
+    };
+    const { storeStatuses } = await createOrchestrator([adapter]).search(QUERY);
+    expect(storeStatuses).toEqual([expect.objectContaining({ ok: true, sourceStatuses: [
+      { source: "catalog.shopify.com", ok: true, offerCount: 1 },
+      expect.objectContaining({ source: "broken-shop.example", ok: false }),
+    ] })]);
+  });
+  it("fails closed instead of forwarding hostile child-status details", async () => {
+    const adapter: StoreAdapter = {
+      manifest: manifest("hostile"),
+      async search() {
+        return { ok: true, offers: [fixtureOffer("hostile", "one")], sourceStatuses: [{
+          source: "child.example", ok: false, error: { store: "hostile", code: "timeout", message: "timed out", retryable: true, details: { authorization: "Bearer secret", rawBody: "secret", profileUrl: "https://secret.example" } },
+        }] } as never;
+      },
+      async getOffer() { return { ok: false, error: storeError("hostile", "not_found", "n/a", { retryable: false }) }; },
+    };
+    const { offers, storeStatuses } = await createOrchestrator([adapter]).search(QUERY);
+    expect(offers).toEqual([]);
+    expect(storeStatuses).toEqual([expect.objectContaining({ ok: false, error: { code: "invalid_response", message: "store returned invalid source statuses", retryable: false, store: "hostile" } })]);
+    expect(JSON.stringify(storeStatuses)).not.toContain("secret");
+  });
+  it("fails closed instead of forwarding provider text in a permitted child error field", async () => {
+    const adapter: StoreAdapter = {
+      manifest: manifest("hostile"),
+      async search() {
+        return { ok: true, offers: [fixtureOffer("hostile", "one")], sourceStatuses: [{
+          source: "child.example", ok: false, error: { store: "hostile", code: "timeout", message: "Authorization: Bearer private-token", retryable: true },
+        }] } as never;
+      },
+      async getOffer() { return { ok: false, error: storeError("hostile", "not_found", "n/a", { retryable: false }) }; },
+    };
+    const { offers, storeStatuses } = await createOrchestrator([adapter]).search(QUERY);
+    expect(offers).toEqual([]);
+    expect(storeStatuses).toEqual([expect.objectContaining({ ok: false, error: expect.objectContaining({ code: "invalid_response" }) })]);
+    expect(JSON.stringify(storeStatuses)).not.toContain("private-token");
+  });
+  it("fails closed when a child status substitutes a different store identity", async () => {
+    const adapter: StoreAdapter = {
+      manifest: manifest("shopify"),
+      async search() {
+        return { ok: true, offers: [fixtureOffer("shopify", "one")], sourceStatuses: [{
+          source: "child.example",
+          ok: false,
+          error: { store: "private-profile", code: "timeout", message: "source request timed out", retryable: true },
+        }] };
+      },
+      async getOffer() { return { ok: false, error: storeError("shopify", "not_found", "n/a", { retryable: false }) }; },
+    };
+    const { offers, storeStatuses } = await createOrchestrator([adapter]).search(QUERY);
+    expect(offers).toEqual([]);
+    expect(storeStatuses).toEqual([expect.objectContaining({ ok: false, error: expect.objectContaining({ code: "invalid_response" }) })]);
+    expect(JSON.stringify(storeStatuses)).not.toContain("private-profile");
+  });
+  it("exact refresh uses the requested adapter and rejects a mismatched tuple", async () => {
+    const adapter: StoreAdapter = {
+      manifest: manifest("reference"),
+      async search() { return { ok: true, offers: [] }; },
+      async getOffer() { return { ok: true, offer: fixtureOffer("other", "other-id") }; },
+    };
+    const outcome = await createOrchestrator([adapter]).getOffer("reference", "off-1");
+    expect(outcome).toMatchObject({ ok: false, error: { code: "invalid_response" } });
+  });
   it("one hanging adapter: other stores' offers still return, with a per-store timeout status, within budget", async () => {
     const orchestrator = createOrchestrator([createReferenceAdapter(), createBrokenReferenceAdapter()], {
       adapterTimeoutMs: 200,
-      maxRetries: 1,
-      retryBaseDelayMs: 10,
     });
 
     const started = Date.now();
@@ -63,11 +134,11 @@ describe("aggregation orchestrator — graceful fan-out", () => {
       expect(failed.error.retryable).toBe(true);
     }
 
-    // Within budget: 2 attempts × 200ms + bounded jittered backoff, with margin.
+    // The timeout protects the one adapter invocation with margin.
     expect(elapsed).toBeLessThan(1500);
   });
 
-  it("retries a retryable failure with bounded attempts, then succeeds", async () => {
+  it("calls a retryable adapter error exactly once", async () => {
     let calls = 0;
     const flaky: StoreAdapter = {
       manifest: manifest("flaky"),
@@ -83,11 +154,11 @@ describe("aggregation orchestrator — graceful fan-out", () => {
       },
     };
 
-    const orchestrator = createOrchestrator([flaky], { maxRetries: 1, retryBaseDelayMs: 5 });
+    const orchestrator = createOrchestrator([flaky]);
     const { offers, storeStatuses } = await orchestrator.search(QUERY);
-    expect(calls).toBe(2);
-    expect(offers.map((o) => o.id)).toEqual(["flaky-1"]);
-    expect(storeStatuses[0]).toMatchObject({ store: "flaky", ok: true, offerCount: 1 });
+    expect(calls).toBe(1);
+    expect(offers).toEqual([]);
+    expect(storeStatuses[0]).toMatchObject({ store: "flaky", ok: false, error: { code: "unavailable" } });
   });
 
   it("does not expose an adapter's thrown error text in agent-facing store status", async () => {
@@ -102,7 +173,7 @@ describe("aggregation orchestrator — graceful fan-out", () => {
       },
     };
 
-    const result = await createOrchestrator([throwing], { maxRetries: 0 }).search(QUERY);
+    const result = await createOrchestrator([throwing]).search(QUERY);
     expect(result.storeStatuses[0]).toMatchObject({
       ok: false,
       error: { code: "internal", message: "store adapter failed unexpectedly" },
@@ -126,7 +197,7 @@ describe("aggregation orchestrator — graceful fan-out", () => {
       },
     };
 
-    const orchestrator = createOrchestrator([denied], { maxRetries: 2, retryBaseDelayMs: 5 });
+    const orchestrator = createOrchestrator([denied]);
     const { storeStatuses } = await orchestrator.search(QUERY);
     expect(calls).toBe(1);
     expect(storeStatuses[0]).toMatchObject({
@@ -136,7 +207,7 @@ describe("aggregation orchestrator — graceful fan-out", () => {
     });
   });
 
-  it("bounded retries: a persistently failing retryable store stops after maxRetries extra attempts", async () => {
+  it("does not repeat a persistently failing retryable store", async () => {
     let calls = 0;
     const alwaysDown: StoreAdapter = {
       manifest: manifest("down"),
@@ -148,9 +219,9 @@ describe("aggregation orchestrator — graceful fan-out", () => {
         return { ok: false, error: storeError("down", "not_found", "n/a", { retryable: false }) };
       },
     };
-    const orchestrator = createOrchestrator([alwaysDown], { maxRetries: 2, retryBaseDelayMs: 1 });
+    const orchestrator = createOrchestrator([alwaysDown]);
     const { storeStatuses } = await orchestrator.search(QUERY);
-    expect(calls).toBe(3); // 1 attempt + 2 retries, no more
+    expect(calls).toBe(1);
     expect(storeStatuses[0]).toMatchObject({ ok: false, error: { code: "unavailable" } });
   });
 
@@ -209,7 +280,6 @@ describe("aggregation orchestrator — graceful fan-out", () => {
     const orchestrator = createOrchestrator([stubborn], {
       perHostConcurrency: 1,
       adapterTimeoutMs: 20,
-      maxRetries: 0,
     });
 
     // Two concurrent searches: the first attempt times out at 20ms (its real
@@ -387,7 +457,7 @@ describe("aggregation orchestrator — graceful fan-out", () => {
         return { ok: false, error: storeError("polite", "not_found", "n/a", { retryable: false }) };
       },
     };
-    const orchestrator = createOrchestrator([slowButPolite], { adapterTimeoutMs: 50, maxRetries: 0 });
+    const orchestrator = createOrchestrator([slowButPolite], { adapterTimeoutMs: 50 });
     const { storeStatuses } = await orchestrator.search(QUERY);
     expect(storeStatuses[0]?.ok).toBe(false);
     expect(sawAbort).toBe(true);

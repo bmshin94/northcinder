@@ -1,7 +1,10 @@
 import {
   BuyersBriefSchema,
+  decisionOfferKey,
   RANK_ELIMINATION_CODES,
   trustKey,
+  type CandidateDecisionEvidence,
+  type DecisionReadiness,
   type AppliedProfileEntry,
   type BriefFinalist,
   type BuyersBrief,
@@ -42,6 +45,10 @@ export interface BuyersBriefInput {
   storeStatuses: StoreStatus[];
   /** Trust signals keyed by trustKey(merchant) (the ranking's own inputs). */
   trustSignals?: Record<string, TrustSignal> | undefined;
+  /** Optional decision evidence; affects decision display only, never ranking. */
+  evidence?: readonly CandidateDecisionEvidence[] | undefined;
+  /** Optional research readiness; absence remains explicitly provisional. */
+  decisionReadiness?: DecisionReadiness | undefined;
 }
 
 /** Deterministic money formatting for human-facing lines (minor units → major). */
@@ -67,6 +74,12 @@ export function eliminatingCriteria(result: RankedResult): string[] {
     else if (r.code === RANK_ELIMINATION_CODES.SPEC_MISSING) out.push(`missing must-have attributes: ${r.detail}`);
     else if (r.code === RANK_ELIMINATION_CODES.DELIVERY_MISSED) out.push(`misses delivery deadline: ${r.detail}`);
     else if (r.code === RANK_ELIMINATION_CODES.OUT_OF_STOCK) out.push("out of stock");
+    else if (r.code === RANK_ELIMINATION_CODES.REQUIRED_ATTRIBUTE_MISSING) out.push(`required attribute missing: ${r.detail}`);
+    else if (r.code === RANK_ELIMINATION_CODES.REQUIRED_PRICE_EXCEEDED) out.push(`required price exceeded: ${r.detail}`);
+    else if (r.code === RANK_ELIMINATION_CODES.REQUIRED_DELIVERY_MISSED) out.push(`required delivery missed: ${r.detail}`);
+    else if (r.code === RANK_ELIMINATION_CODES.REQUIRED_DELIVERY_UNKNOWN) out.push(`required delivery unknown: ${r.detail}`);
+    else if (r.code === RANK_ELIMINATION_CODES.REQUIRED_ETHICS_MISSING) out.push(`required ethics missing: ${r.detail}`);
+    else if (r.code === RANK_ELIMINATION_CODES.REQUIRED_AVAILABILITY_MISMATCH) out.push(`required availability mismatch: ${r.detail}`);
   }
   return out;
 }
@@ -240,7 +253,14 @@ export function computeTradeoffs(
 export function coverageFromStatuses(storeStatuses: StoreStatus[]): CoverageEntry[] {
   return storeStatuses.map((s) =>
     s.ok
-      ? { store: s.store, status: "searched" as const, offerCount: s.offerCount }
+      ? {
+          store: s.store,
+          status: "searched" as const,
+          offerCount: s.offerCount,
+          ...(s.sourceStatuses?.some((source) => !source.ok)
+            ? { detail: `partial: ${s.sourceStatuses.filter((source) => !source.ok).length} configured source failed` }
+            : {}),
+        }
       : {
           store: s.store,
           status:
@@ -294,12 +314,180 @@ function overflowElimination(result: RankedResult, lowestFinalistScore: number):
   if (result.score < lowestFinalistScore) {
     return `outranked on your criteria: score ${result.score.toFixed(2)} below the last finalist (${lowestFinalistScore.toFixed(2)})`;
   }
-  return `outranked on your criteria: tied with the last finalist (score ${result.score.toFixed(2)}) and ranked below on the deterministic tie-break (price, then offer id)`;
+  return `outranked on your criteria: tied with the last finalist (score ${result.score.toFixed(2)}) and ranked below on the deterministic tie-break (price, then store-scoped offer tuple)`;
+}
+
+const NEUTRAL_DOWNSIDE = "No decisive downside established from current evidence.";
+
+function firstUnique(values: readonly string[], max: number): string[] {
+  return [...new Set(values)].slice(0, max);
+}
+
+function gapDescription(gap: string): string {
+  const descriptions: Record<string, string> = {
+    "product.identity": "Exact product identity still needs confirmation.",
+    "product.primary-facts": "Primary product facts still need confirmation.",
+    "seller.identity": "Seller identity still needs confirmation.",
+    "seller.policies": "Seller policies still need confirmation.",
+  };
+  return descriptions[gap] ?? `Research still needed: ${gap}`;
+}
+
+function latestTimestamp(values: readonly (string | undefined)[]): { status: "known"; observedAt: string } | { status: "unknown" } {
+  const valid = values.filter((value): value is string => value !== undefined && Number.isFinite(Date.parse(value)));
+  if (valid.length === 0) return { status: "unknown" };
+  return { status: "known", observedAt: valid.reduce((latest, value) => (Date.parse(value) > Date.parse(latest) ? value : latest)) };
+}
+
+function effectiveEvidence(result: RankedResult, evidence: Map<string, CandidateDecisionEvidence>) {
+  const candidate = evidence.get(decisionOfferKey(result.offer.sourceStore, result.offer.id));
+  const offer = result.offer;
+  return {
+    candidate,
+    productIdentity: candidate?.productIdentity ?? offer.product.identity,
+    landedCost: candidate?.landedCost ?? offer.landedCost,
+    returnPolicy: candidate?.returnPolicy ?? offer.returnPolicy,
+    warranty: candidate?.warranty ?? offer.warranty,
+  };
+}
+
+function readinessFor(result: RankedResult, decisionReadiness: DecisionReadiness | undefined) {
+  return decisionReadiness?.offers.find(
+    (readiness) => readiness.offerKey === decisionOfferKey(result.offer.sourceStore, result.offer.id),
+  );
+}
+
+function sellerState(result: RankedResult, trustSignals: Record<string, TrustSignal> | undefined) {
+  return trustSignals?.[trustKey(result.offer.merchant)]?.level ?? "unknown";
+}
+
+function verificationState(result: RankedResult): "agent_observed" | "merchant_verified" {
+  return result.offer.acquisition?.kind === "agent_observed" ? "agent_observed" : "merchant_verified";
+}
+
+function importantUnknowns(
+  readiness: ReturnType<typeof readinessFor>,
+  hasProductIdentity: boolean,
+  hasLandedCost: boolean,
+): string[] {
+  const missingFacts = [
+    ...(hasProductIdentity ? [] : ["Exact product identity is not confirmed."]),
+    ...(hasLandedCost ? [] : ["Landed cost is not confirmed."]),
+  ];
+  if (readiness === undefined) return firstUnique([...missingFacts, "Research readiness is unknown."], 12);
+  return firstUnique([...missingFacts, ...readiness.unknowns, ...readiness.gaps.map(gapDescription)], 12);
+}
+
+function decisiveDownside(
+  result: RankedResult,
+  state: string,
+  verification: "agent_observed" | "merchant_verified",
+  readiness: ReturnType<typeof readinessFor>,
+  landedCost: ReturnType<typeof effectiveEvidence>["landedCost"],
+  tradeoffs: Tradeoff[],
+): string {
+  if (result.offer.sponsored || result.offer.acquisition?.placement === "unknown") {
+    return "Paid or unknown placement requires extra caution.";
+  }
+  if (verification === "agent_observed") return "Agent-observed facts require native revalidation.";
+  if (state === "flagged") return "Seller trust is flagged.";
+  if (state === "unknown") return "Seller trust is unknown.";
+  if (readiness?.conflicts[0] !== undefined) return readiness.conflicts[0];
+  if (readiness?.unknowns[0] !== undefined) return readiness.unknowns[0];
+  if (landedCost === undefined) return "Landed cost is not confirmed.";
+  if (landedCost.completeness === "partial") return "Landed cost is incomplete.";
+  if (result.offer.shipping?.deliveryBy === undefined) return "Promised delivery is not stated.";
+  const adverse = tradeoffs.find((tradeoff) => /(?:more than|after the earliest|no promised|lower merchant|missing)/i.test(tradeoff.detail));
+  return adverse?.detail ?? NEUTRAL_DOWNSIDE;
+}
+
+type RoleProjection = {
+  role: "top_fit" | "lower_risk" | "budget_or_different";
+  sourceStore: string;
+  offerId: string;
+  roleReason: string;
+};
+
+type RoleCandidate = {
+  finalist: BriefFinalist;
+  risk: readonly number[];
+};
+
+function compareRisk(left: readonly number[], right: readonly number[]): number {
+  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+    const difference = (left[index] ?? 0) - (right[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
+function materialDifference(top: BriefFinalist, candidate: BriefFinalist): boolean {
+  return (
+    top.verificationState !== candidate.verificationState ||
+    top.sellerState !== candidate.sellerState ||
+    top.sourceStore !== candidate.sourceStore ||
+    top.productIdentity?.canonical !== candidate.productIdentity?.canonical ||
+    top.productIdentity?.variant !== candidate.productIdentity?.variant ||
+    top.deliveryBy !== candidate.deliveryBy ||
+    top.price.amount !== candidate.price.amount ||
+    top.price.currency !== candidate.price.currency
+  );
+}
+
+function decisionSummary(finalists: BriefFinalist[], readiness: DecisionReadiness | undefined): RoleProjection[] {
+  const top = finalists[0];
+  if (top === undefined) return [];
+  const candidates: RoleCandidate[] = finalists.map((finalist) => {
+    const row = readiness?.offers.find((offer) => offer.offerKey === decisionOfferKey(finalist.sourceStore, finalist.offerId));
+    const placementRisk = finalist.sponsored || finalist.acquisition?.placement === "unknown" ? 1 : 0;
+    const verificationRisk = finalist.verificationState === "merchant_verified" ? 0 : 1;
+    const sellerRisk: Record<BriefFinalist["sellerState"], number> = { trusted: 0, known: 1, unknown: 2, flagged: 3 };
+    const decisionRisk: Record<BriefFinalist["decisionStatus"], number> = { ready: 0, provisional: 1, eliminated: 2 };
+    const evidenceGaps = row === undefined ? 1 : row.gaps.length + row.totalConflictCount + row.totalUnknownCount;
+    return { finalist, risk: [placementRisk, verificationRisk, sellerRisk[finalist.sellerState], decisionRisk[finalist.decisionStatus], evidenceGaps, finalist.rank] };
+  });
+  const topCandidate = candidates[0]!;
+  const summary: RoleProjection[] = [{ role: "top_fit", sourceStore: top.sourceStore, offerId: top.offerId, roleReason: "First qualifying finalist in the neutrality ranking." }];
+  const safer = candidates.slice(1).filter((candidate) => compareRisk(candidate.risk, topCandidate.risk) < 0).sort((left, right) => compareRisk(left.risk, right.risk))[0];
+  if (safer !== undefined) {
+    summary.push({ role: "lower_risk", sourceStore: safer.finalist.sourceStore, offerId: safer.finalist.offerId, roleReason: "Has a lower evidence-risk tuple than the top fit." });
+  }
+  const used = new Set(summary.map((entry) => decisionOfferKey(entry.sourceStore, entry.offerId)));
+  const remaining = finalists.filter((finalist) => !used.has(decisionOfferKey(finalist.sourceStore, finalist.offerId)));
+  const cheaper = remaining
+    .filter((finalist) => finalist.price.currency === top.price.currency && finalist.price.amount < top.price.amount)
+    .sort((left, right) => left.price.amount - right.price.amount || left.rank - right.rank)[0];
+  const different = cheaper ?? remaining.find((finalist) => materialDifference(top, finalist));
+  if (different !== undefined) {
+    summary.push({
+      role: "budget_or_different",
+      sourceStore: different.sourceStore,
+      offerId: different.offerId,
+      roleReason: cheaper === undefined ? "A distinct remaining finalist for comparison." : "Cheaper same-currency remaining finalist.",
+    });
+  }
+  return summary;
+}
+
+function unresolvedQuestions(summary: RoleProjection[], finalists: BriefFinalist[], readiness: DecisionReadiness | undefined): string[] {
+  const questions: string[] = [];
+  for (const entry of summary) {
+    const finalist = finalists.find((row) => row.sourceStore === entry.sourceStore && row.offerId === entry.offerId);
+    if (finalist === undefined) continue;
+    const row = readiness?.offers.find((offer) => offer.offerKey === decisionOfferKey(finalist.sourceStore, finalist.offerId));
+    for (const gap of row?.gaps ?? []) questions.push(`For ${finalist.title}: resolve ${gap}.`);
+    for (const conflict of row?.conflicts ?? []) questions.push(`For ${finalist.title}: resolve conflicting evidence: ${conflict}`);
+    for (const unknown of row?.unknowns ?? []) questions.push(`For ${finalist.title}: clarify ${unknown}`);
+    for (const checklist of row?.remainingChecklistItemIds ?? []) questions.push(`For ${finalist.title}: complete ${checklist}.`);
+    if (row === undefined) questions.push(`For ${finalist.title}: establish current research readiness.`);
+  }
+  return firstUnique(questions, 12);
 }
 
 export function composeBuyersBrief(input: BuyersBriefInput): BuyersBrief {
-  const { searchId, results, interpretedQuery, storeStatuses, trustSignals } = input;
+  const { searchId, results, interpretedQuery, storeStatuses, trustSignals, decisionReadiness } = input;
   const criteria = interpretedQuery.criteria;
+  const evidence = new Map((input.evidence ?? []).map((candidate) => [decisionOfferKey(candidate.sourceStore, candidate.offerId), candidate]));
 
   const qualified: RankedResult[] = [];
   const rejected: RejectedOffer[] = [];
@@ -334,27 +522,50 @@ export function composeBuyersBrief(input: BuyersBriefInput): BuyersBrief {
   const finalists: BriefFinalist[] = qualified.map((result, i) => {
     const offer = result.offer;
     const trust = trustSignals?.[trustKey(offer.merchant)];
+    const effective = effectiveEvidence(result, evidence);
+    const readiness = readinessFor(result, decisionReadiness);
+    const state = sellerState(result, trustSignals);
+    const verification = verificationState(result);
+    const tradeoffs = computeTradeoffs(result, qualified, criteria, trustSignals);
     return {
       rank: i + 1,
       offerId: offer.id,
       sourceStore: offer.sourceStore,
       title: offer.product.title,
       url: offer.product.url,
+      ...(offer.product.imageUrl !== undefined ? { imageUrl: offer.product.imageUrl } : {}),
       merchant: { id: offer.merchant.id, name: offer.merchant.name },
       price: offer.price,
       availability: offer.availability,
       ...(offer.shipping?.deliveryBy !== undefined ? { deliveryBy: offer.shipping.deliveryBy } : {}),
       ...(trust !== undefined ? { trustLevel: trust.level } : {}),
       sponsored: offer.sponsored,
+      ...(effective.productIdentity !== undefined ? { productIdentity: effective.productIdentity } : {}),
+      ...(effective.landedCost !== undefined ? { landedCost: effective.landedCost } : {}),
+      sellerState: state,
+      freshness: latestTimestamp([
+        offer.fetchedAt,
+        offer.acquisition?.observedAt,
+        effective.landedCost?.components.map((component) => component.observedAt).filter((value) => value !== undefined).sort().at(-1),
+        effective.returnPolicy?.observedAt,
+        effective.warranty?.observedAt,
+        ...effective.candidate?.claims.map((claim) => claim.observedAt) ?? [],
+      ]),
+      verificationState: verification,
+      decisionStatus: readiness?.status ?? "provisional",
+      importantUnknowns: importantUnknowns(readiness, effective.productIdentity !== undefined, effective.landedCost !== undefined),
+      decisiveDownside: decisiveDownside(result, state, verification, readiness, effective.landedCost, tradeoffs),
+      rawReasons: result.reasons.slice(0, 50),
       ...(offer.acquisition !== undefined ? { acquisition: offer.acquisition } : {}),
       whyThis: whyThisLines(result.reasons, criteria, interpretedQuery.appliedProfileEntries),
-      tradeoffs: computeTradeoffs(result, qualified, criteria, trustSignals),
+      tradeoffs,
       provenance: provenanceFor(result, trust),
     };
   });
 
   // Parse on the way out: construction-guaranteed invariants (≤5 finalists,
   // non-empty whyThis, coverage vocabulary) hold for every composed brief.
+  const summary = decisionSummary(finalists, decisionReadiness);
   return BuyersBriefSchema.parse({
     searchId,
     query: criteria,
@@ -362,5 +573,7 @@ export function composeBuyersBrief(input: BuyersBriefInput): BuyersBrief {
     rejected,
     coverage: coverageFromStatuses(storeStatuses),
     offersConsidered: results.length,
+    decisionSummary: summary,
+    unresolvedResearchQuestions: unresolvedQuestions(summary, finalists, decisionReadiness),
   });
 }

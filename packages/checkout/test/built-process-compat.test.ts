@@ -22,7 +22,7 @@ function child(kind: "legacy" | "renamed", mode: string, mandate: string, rail: 
 }
 
 describe("built checkout compatibility across old and renamed processes", () => {
-  for (const strategy of ["explicit", "xdg", "home"] as const) it(`${strategy}: old and renamed processes share one marker and one rail attempt`, async () => {
+  for (const strategy of ["explicit", "xdg", "home"] as const) it(`${strategy}: the current process rejects an old underbound mandate while the old process can finish its own attempt`, async () => {
     const root = mkdtempSync(join(tmpdir(), `northcinder-built-${strategy}-`)); roots.push(root);
     const legacy = strategy === "xdg" ? join(root, "xdg", "emptor") : strategy === "home" ? join(root, "home", ".config", "emptor") : join(root, "old-custom");
     const mandate = join(root, "mandate.json"); const rail = join(root, "rail"); mkdirSync(legacy, { recursive: true }); writeFileSync(rail, "0");
@@ -37,18 +37,18 @@ describe("built checkout compatibility across old and renamed processes", () => 
     old.process.send({ type: "go" }); renamed.process.send({ type: "go" });
     const results = await Promise.all([oldResult, renamedResult]);
     expect(results.filter((x) => x.result.ok)).toHaveLength(1);
-    expect(results.filter((x) => !x.result.ok && x.result.error.code === "replayed")).toHaveLength(1);
+    expect(results.filter((x) => !x.result.ok && x.result.error.code === "malformed")).toHaveLength(1);
     expect(readdirSync(join(legacy, "nonce-ledger.json.markers"))).toHaveLength(1);
     expect(readFileSync(rail, "utf8")).toBe("1");
   });
 
-  it("fresh canonical key rejects old custom-domain mandate before marker or rail", async () => {
+  it("a fresh current process rejects an old underbound mandate before key lookup, marker, or rail", async () => {
     const root = mkdtempSync(join(tmpdir(), "northcinder-built-key-")); roots.push(root);
     const legacy = join(root, "legacy"); const fresh = join(root, "fresh"); const mandate = join(root, "mandate.json"); const rail = join(root, "rail"); writeFileSync(rail, "0");
     await child("legacy", "issue", mandate, rail, { EMPTOR_CONFIG_DIR: legacy }).message;
     const candidate = child("renamed", "race", mandate, rail, { NORTHCINDER_CONFIG_DIR: fresh, HOME: root }); await candidate.message;
     const outcome = new Promise<any>((resolveMessage) => candidate.process.once("message", resolveMessage)); candidate.process.send({ type: "go" });
-    expect((await outcome).result).toMatchObject({ ok: false, stage: "mandate", error: { code: "untrusted_key" } });
+    expect((await outcome).result).toMatchObject({ ok: false, stage: "mandate", error: { code: "malformed" } });
     expect(existsSync(join(fresh, "nonce-ledger.json.markers"))).toBe(false); expect(readFileSync(rail, "utf8")).toBe("0");
   });
 });

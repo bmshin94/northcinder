@@ -22,8 +22,8 @@
  * approval is exactly the order the human saw fingerprinted.
  *
  * The purchase mandate is signed only AT APPROVAL TIME (issuance = the human
- * act), with the user's local ed25519 keypair, binding offer id, merchant,
- * and a hard spending cap.
+ * act), with the user's local ed25519 keypair, binding the exact offer digest,
+ * quantity one, merchant, and a hard spending cap.
  */
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";

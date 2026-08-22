@@ -13,6 +13,8 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { Offer, SearchRankResponse } from "@northcinder/protocol";
 import { loadOrCreateMandateKeypair } from "@northcinder/checkout";
 import { createOrderGraphStore } from "@northcinder/orders";
+import { createProfileStore } from "@northcinder/profile";
+import { createOrderStore } from "../src/order-store.js";
 import { createAuditLog } from "../src/audit-log.js";
 import { createAuthorizationStore } from "../src/authorization.js";
 import { createClientCheckout } from "../src/checkout-wiring.js";
@@ -89,6 +91,18 @@ describe("list_orders / get_order / import_order (order graph)", () => {
       .map((l) => JSON.parse(l) as Record<string, unknown>);
   }
 
+  it("describes and annotates get_order as an idempotent buyer-local calendar refresh", async () => {
+    const tool = (await client.listTools()).tools.find((candidate) => candidate.name === "get_order");
+    expect(tool?.title).toContain("refresh");
+    expect(tool?.description).toContain("calendar file");
+    expect(tool?.annotations).toEqual({
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    });
+  });
+
   it("list_orders is honest when empty, and audits orders_listed", async () => {
     const res = await client.callTool({ name: "list_orders", arguments: {} });
     expect(res.isError ?? false).toBe(false);
@@ -153,5 +167,120 @@ describe("list_orders / get_order / import_order (order graph)", () => {
     expect(existsSync(calendarPath)).toBe(true);
     expect(readFileSync(calendarPath, "utf8")).toContain("SUMMARY:Return window closes for order 1021");
     expect(auditEvents().some((e) => e.type === "order_read" && e.orderId === emailOrder!.orderId)).toBe(true);
+  });
+});
+
+describe("record_order_outcome", () => {
+  it("rejects unknown orders, persists a complete checkout outcome and explicit reminder, and updates exactly one matching decision", async () => {
+    const configDir = mkdtempSync(join(tmpdir(), "northcinder-order-outcome-tools-"));
+    const keypair = loadOrCreateMandateKeypair({ configDir });
+    const audit = createAuditLog(configDir);
+    const checkout = createClientCheckout({ configDir, trustedPublicKeys: [keypair.publicKeyB64] });
+    const orders = createOrderStore(configDir);
+    const orderGraph = createOrderGraphStore(configDir);
+    orders.append({
+      orderId: "order_checkout_1", createdAt: "2026-08-01T00:00:00.000Z", sourceStore: "ebay", offerId: "offer-1", productTitle: "Trail Shoe", productBrand: "Acme",
+      merchantId: "shop.example", merchantDomain: "shop.example", railId: "acp", status: "completed", mandateId: "mandate_1", mandate: { constraints: { maxAmount: { amount: 10000, currency: "USD" } } } as never, evidence: { rail: "acp" } as never,
+    });
+    expect(orderGraph.getOrder("order_checkout_1", orders.list())).toBeDefined();
+    const server = createNorthCinderMcpServer({
+      service,
+      authorizations: createAuthorizationStore({ keypair, configDir, quiet: true }), checkout: checkout.orchestrator, audit, orders, orderGraph,
+    });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "test-host-agent", version: "0.0.1" });
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
+    const unknown = await client.callTool({ name: "record_order_outcome", arguments: { orderId: "missing", state: "kept" } });
+    expect(unknown.isError).toBe(true);
+
+    // Seed one deliberately bounded matching decision state, as an earlier checkout flow would.
+    audit.append({ type: "authorization_requested", searchId: "search_order", decisionState: {
+      searchId: "search_order", request: "trail shoe", criteria: { text: "trail shoe" }, candidates: [{ role: "top_fit", roleReason: "fit", rank: 1, sourceStore: "ebay", offerId: "offer-1", title: "Trail Shoe", merchant: { id: "shop.example", name: "Shop" }, price: { amount: 10000, currency: "USD" }, availability: "in_stock", sponsored: false, sellerState: "unknown", freshness: { status: "unknown" }, verificationState: "merchant_verified", decisionStatus: "ready", importantUnknowns: [], decisiveDownside: "none", whyThis: ["fit"], tradeoffs: [] }], coverage: [], unresolvedResearchQuestions: [], readiness: { status: "ready", reasons: [] }, projectionWarnings: [], chosenOffer: { sourceStore: "ebay", offerId: "offer-1" }, outcome: null, profileEffects: { applied: [], overridden: [] },
+    } });
+    const recorded = await client.callTool({ name: "record_order_outcome", arguments: {
+      orderId: "order_checkout_1", state: "kept", fitOrCompatibility: "fit", merchantDelivery: "on_time", merchantSupport: "helpful", wouldChooseAgain: true,
+      preferenceReason: "fit", reminders: [{ kind: "warranty", remindOn: "2027-08-01", dueOn: "2027-08-31", detail: "Register warranty." }],
+    } });
+    expect(recorded.isError ?? false).toBe(false);
+    expect((recorded.structuredContent as { outcome: { state: string }; reminders: unknown[]; decisionOutcomeUpdated: boolean }).outcome.state).toBe("kept");
+    expect((recorded.structuredContent as { reminders: unknown[] }).reminders).toHaveLength(1);
+    expect((recorded.structuredContent as { decisionOutcomeUpdated: boolean }).decisionOutcomeUpdated).toBe(true);
+    const detail = await client.callTool({ name: "get_order", arguments: { orderId: "order_checkout_1" } });
+    expect((detail.structuredContent as { outcome: { merchantDelivery: string }; lifecycleReminders: unknown[] }).outcome.merchantDelivery).toBe("on_time");
+    expect((detail.structuredContent as { lifecycleReminders: unknown[] }).lifecycleReminders).toHaveLength(1);
+  });
+
+  it("leaves ambiguous matching decision states unknown instead of attributing an outcome to either one", async () => {
+    // Regression: selecting the newest matching decision would rewrite a
+    // decision the buyer did not necessarily make.
+    const configDir = mkdtempSync(join(tmpdir(), "northcinder-order-outcome-ambiguous-"));
+    const keypair = loadOrCreateMandateKeypair({ configDir });
+    const audit = createAuditLog(configDir);
+    const checkout = createClientCheckout({ configDir, trustedPublicKeys: [keypair.publicKeyB64] });
+    const orders = createOrderStore(configDir);
+    const orderGraph = createOrderGraphStore(configDir);
+    orders.append({
+      orderId: "order_ambiguous_1", createdAt: "2026-08-01T00:00:00.000Z", sourceStore: "ebay", offerId: "offer-ambiguous", productTitle: "Trail Shoe",
+      merchantId: "shop.example", merchantDomain: "shop.example", railId: "acp", status: "completed", mandateId: "mandate_1", mandate: { constraints: { maxAmount: { amount: 10000, currency: "USD" } } } as never, evidence: { rail: "acp" } as never,
+    });
+    const candidate = { role: "top_fit", roleReason: "fit", rank: 1, sourceStore: "ebay", offerId: "offer-ambiguous", title: "Trail Shoe", merchant: { id: "shop.example", name: "Shop" }, price: { amount: 10000, currency: "USD" }, availability: "in_stock", sponsored: false, sellerState: "unknown", freshness: { status: "unknown" }, verificationState: "merchant_verified", decisionStatus: "ready", importantUnknowns: [], decisiveDownside: "none", whyThis: ["fit"], tradeoffs: [] } as const;
+    for (const searchId of ["search_ambiguous_a", "search_ambiguous_b"]) {
+      audit.append({ type: "authorization_requested", searchId, decisionState: {
+        searchId, request: "trail shoe", criteria: { text: "trail shoe" }, candidates: [candidate], coverage: [], unresolvedResearchQuestions: [], readiness: { status: "ready", reasons: [] }, projectionWarnings: [], chosenOffer: { sourceStore: "ebay", offerId: "offer-ambiguous" }, outcome: null, profileEffects: { applied: [], overridden: [] },
+      } });
+    }
+    const server = createNorthCinderMcpServer({
+      service, authorizations: createAuthorizationStore({ keypair, configDir, quiet: true }), checkout: checkout.orchestrator, audit, orders, orderGraph,
+    });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "test-host-agent", version: "0.0.1" });
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
+    const recorded = await client.callTool({ name: "record_order_outcome", arguments: { orderId: "order_ambiguous_1", state: "kept" } });
+    expect(recorded.isError ?? false).toBe(false);
+    expect((recorded.structuredContent as { decisionOutcomeUpdated: boolean }).decisionOutcomeUpdated).toBe(false);
+    const events = readFileSync(audit.path, "utf8").trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
+    const outcomeAudit = events.at(-1)!;
+    expect(outcomeAudit).toMatchObject({ type: "order_outcome_recorded", orderId: "order_ambiguous_1", decisionOutcomeUpdated: false });
+    expect(outcomeAudit.decisionState).toBeUndefined();
+    expect(events.filter((event) => event.decisionState !== undefined).map((event) => (event.decisionState as { outcome: unknown }).outcome)).toEqual([null, null]);
+  });
+
+  it("records one outcome-backed brand reaction as a pending proposal without creating a profile entry", async () => {
+    // Regression: a single confirmed outcome must not promote itself into a
+    // durable inferred brand preference.
+    const configDir = mkdtempSync(join(tmpdir(), "northcinder-order-outcome-proposal-"));
+    const keypair = loadOrCreateMandateKeypair({ configDir });
+    const audit = createAuditLog(configDir);
+    const checkout = createClientCheckout({ configDir, trustedPublicKeys: [keypair.publicKeyB64] });
+    const orders = createOrderStore(configDir);
+    const orderGraph = createOrderGraphStore(configDir);
+    const profile = createProfileStore({ configDir });
+    orders.append({
+      orderId: "order_brand_proposal_1", createdAt: "2026-08-01T00:00:00.000Z", sourceStore: "ebay", offerId: "offer-brand", productTitle: "Trail Shoe", productBrand: "Acme",
+      merchantId: "shop.example", merchantDomain: "shop.example", railId: "acp", status: "completed", mandateId: "mandate_1", mandate: { constraints: { maxAmount: { amount: 10000, currency: "USD" } } } as never, evidence: { rail: "acp" } as never,
+    });
+    const server = createNorthCinderMcpServer({
+      service, authorizations: createAuthorizationStore({ keypair, configDir, quiet: true }), checkout: checkout.orchestrator, audit, orders, orderGraph, profile,
+    });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "test-host-agent", version: "0.0.1" });
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
+    const recorded = await client.callTool({ name: "record_order_outcome", arguments: {
+      orderId: "order_brand_proposal_1", state: "kept", wouldChooseAgain: true, preferenceReason: "fit",
+    } });
+    expect(recorded.isError ?? false).toBe(false);
+    expect((recorded.structuredContent as { pendingProposal: Record<string, unknown> }).pendingProposal).toMatchObject({
+      kind: "brand", brand: "Acme", stance: "allow", reason: "fit", evidenceKeys: ["order:order_brand_proposal_1"],
+    });
+    expect((recorded.structuredContent as { createdEntry?: unknown }).createdEntry).toBeUndefined();
+    expect(profile.list()).toEqual([]);
+    expect(profile.listProposals()).toEqual([expect.objectContaining({ kind: "brand", brand: "Acme", stance: "allow", reason: "fit" })]);
+    const outcomeAudit = readFileSync(audit.path, "utf8").trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>).at(-1)!;
+    expect(outcomeAudit).toMatchObject({ type: "order_outcome_recorded", decisionOutcomeUpdated: false });
+    expect(outcomeAudit.proposalId).toBe((recorded.structuredContent as { pendingProposal: { id: string } }).pendingProposal.id);
+    expect(outcomeAudit.createdEntry).toBeUndefined();
   });
 });

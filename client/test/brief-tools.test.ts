@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -8,6 +8,7 @@ import {
   BuyersBriefSchema,
   rankOffers,
   type BuyersBrief,
+  type DecisionReadiness,
   type Offer,
   type SearchRankResponse,
   type TrustSignal,
@@ -52,9 +53,12 @@ const TRUST: Record<string, TrustSignal> = Object.fromEntries(
 function fakeService(): NorthCinderServiceClient {
   return {
     async search(query) {
+      const offers = query.text === "required delivery missed"
+        ? OFFERS.map((candidate) => ({ ...candidate, shipping: { deliveryBy: "2026-12-31" } }))
+        : OFFERS;
       const data: SearchRankResponse = {
         trustSignals: TRUST,
-        results: rankOffers(OFFERS, query, { trust: TRUST }),
+        results: rankOffers(offers, query, { trust: TRUST }),
         storeStatuses: [
           { store: "ebay", ok: true, offerCount: 3, durationMs: 12 },
           {
@@ -88,27 +92,38 @@ function fakeService(): NorthCinderServiceClient {
 
 describe("buyer's brief tools + MCP Apps widget wiring (buyer brief)", () => {
   const configDir = mkdtempSync(join(tmpdir(), "northcinder-brief-"));
+  let auditPath: string;
   let client: Client;
 
   beforeAll(async () => {
     const keypair = loadOrCreateMandateKeypair({ configDir });
     const checkout = createClientCheckout({ configDir, trustedPublicKeys: [keypair.publicKeyB64] });
+    const audit = createAuditLog(configDir);
+    auditPath = audit.path;
     const server = createNorthCinderMcpServer({
       service: fakeService(),
       authorizations: createAuthorizationStore({ keypair, configDir, quiet: true }),
       checkout: checkout.orchestrator,
       railFor: checkout.railFor,
-      audit: createAuditLog(configDir),
+      audit,
     });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     client = new Client({ name: "test-host-agent", version: "0.0.1" });
     await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   });
 
-  async function search(): Promise<{ brief: BuyersBrief; searchId: string }> {
+  async function search(): Promise<{ brief: BuyersBrief; decisionReadiness: DecisionReadiness; searchId: string }> {
     const result = await client.callTool({ name: "search_products", arguments: { text: "wool sneakers" } });
-    const structured = result.structuredContent as { brief: BuyersBrief; searchId: string };
-    return { brief: structured.brief, searchId: structured.searchId };
+    const structured = result.structuredContent as {
+      brief: BuyersBrief;
+      decisionReadiness: DecisionReadiness;
+      searchId: string;
+    };
+    return {
+      brief: structured.brief,
+      decisionReadiness: structured.decisionReadiness,
+      searchId: structured.searchId,
+    };
   }
 
   it("search_products emits a schema-valid brief: finalists inherit ranking, sponsored badged + last, coverage honest", async () => {
@@ -128,6 +143,33 @@ describe("buyer's brief tools + MCP Apps widget wiring (buyer brief)", () => {
       source: "https://ebay.example/p/o1",
       fetchedAt: FETCHED_AT,
     });
+    const latestSearch = readFileSync(auditPath, "utf8").trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>).at(-1)!;
+    expect(latestSearch.decisionState).toMatchObject({
+      searchId: parsed.searchId,
+      request: "wool sneakers",
+      chosenOffer: null,
+      outcome: null,
+    });
+    expect(JSON.stringify(latestSearch.decisionState)).not.toContain("buyerContext");
+  });
+
+  it.each([
+    ["required attribute", { id: "attribute", label: "Impossible attribute", importance: "required", kind: "attribute", value: "never-present" }, "required attribute missing:"],
+    ["required price", { id: "price", label: "One-cent ceiling", importance: "required", kind: "max_price", value: { amount: 1, currency: "USD" } }, "required price exceeded:"],
+    ["required delivery missed", { id: "delivery", label: "Arrive in January", importance: "required", kind: "delivery_by", value: "2026-01-01" }, "required delivery missed:"],
+    ["required delivery unknown", { id: "delivery", label: "Known arrival", importance: "required", kind: "delivery_by", value: "2026-12-31" }, "required delivery unknown:"],
+    ["required ethics", { id: "ethics", label: "Missing certification", importance: "required", kind: "ethics", value: "never-certified" }, "required ethics missing:"],
+    ["required availability", { id: "availability", label: "Must be unavailable", importance: "required", kind: "availability", value: "out_of_stock" }, "required availability mismatch:"],
+  ] as const)("search_products places every offer failing %s in the real brief rejected appendix", async (text, criterion, expected) => {
+    const result = await client.callTool({
+      name: "search_products",
+      arguments: { text, criteria: [criterion] },
+    });
+    expect(result.isError ?? false).toBe(false);
+    const brief = (result.structuredContent as { brief: BuyersBrief }).brief;
+    expect(brief.finalists).toEqual([]);
+    expect(brief.rejected).toHaveLength(OFFERS.length);
+    expect(brief.rejected.every((row) => row.eliminatedBy.some((line) => line.startsWith(expected)))).toBe(true);
   });
 
   it("search_products text carries the markdown fallback (universal path)", async () => {
@@ -139,11 +181,12 @@ describe("buyer's brief tools + MCP Apps widget wiring (buyer brief)", () => {
   });
 
   it("get_buyers_brief re-emits the SAME brief for the searchId, with the markdown rendering as text", async () => {
-    const { brief, searchId } = await search();
+    const { brief, decisionReadiness, searchId } = await search();
     const result = await client.callTool({ name: "get_buyers_brief", arguments: { searchId } });
     expect(result.isError ?? false).toBe(false);
-    const structured = result.structuredContent as { brief: BuyersBrief };
+    const structured = result.structuredContent as { brief: BuyersBrief; decisionReadiness: DecisionReadiness };
     expect(structured.brief).toEqual(brief);
+    expect(structured.decisionReadiness).toEqual(decisionReadiness);
     const text = (result.content as Array<{ type: string; text: string }>)[0]!.text;
     expect(text).toContain('# northcinder buyer\'s brief — "wool sneakers"');
   });
@@ -171,10 +214,26 @@ describe("buyer's brief tools + MCP Apps widget wiring (buyer brief)", () => {
     expect(widget).toBeDefined();
     expect(widget.mimeType).toBe(BRIEF_WIDGET_MIME);
     const { contents } = await client.readResource({ uri: BRIEF_WIDGET_URI });
-    const html = (contents[0] as { text: string }).text;
+    const content = contents[0] as { text: string; _meta?: Record<string, unknown> };
+    const html = content.text;
     expect(contents[0]!.mimeType).toBe(BRIEF_WIDGET_MIME);
     expect(html).toContain("<!DOCTYPE html>");
     expect(html).toContain("function renderBuyersBrief(brief, localTrustEvidence, localTrustEvidenceKeys)");
     expect(html).toContain("Every registered store is listed");
+    expect(content._meta).toEqual({
+      ui: {
+        csp: {
+          connectDomains: [],
+          frameDomains: [],
+          resourceDomains: [
+            "https://cdn.shopify.com",
+            "https://i.ebayimg.com",
+            "https://i.sandbox.ebayimg.com",
+            "https://i.etsystatic.com",
+            "https://m.media-amazon.com",
+          ],
+        },
+      },
+    });
   });
 });

@@ -2,9 +2,9 @@
   "manifest_version": "0.3",
   "name": "northcinder",
   "display_name": "NorthCinder",
-  "version": "0.1.0",
-  "description": "NorthCinder is a buyer-loyal shopping agent: criteria search, deterministic ranking, local mandate-gated checkout, price watches, and an audit trail for MCP hosts.",
-  "long_description": "NorthCinder is an open MCP client that shops across stores in your own accounts and ranks purely on your stated criteria plus a merchant trust signal — never on ad spend. Sponsored offers are labeled and always rank below organic ones. Every purchase requires a per-purchase signed mandate you explicitly approve out of band; an agent can never self-approve a purchase.",
+  "version": "0.2.0",
+  "description": "Advanced NorthCinder MCP client for a separately operated authenticated engine, with buyer-criteria ranking, exact-purchase approval, watches, and a local audit trail.",
+  "long_description": "This bundle is the advanced client for a NorthCinder engine you operate separately. It is not the ordinary one-process local setup from npx northcinder init. NorthCinder ranks disclosed offers by buyer criteria, keeps sponsored offers below organic results, and requires explicit human confirmation for each exact purchase. Approval material is stored in the buyer's local account. An AI application granted file access as the same OS user may be able to read it; separate OS accounts are an optional isolation boundary.",
   "author": {
     "name": "NorthCinder"
   },
@@ -17,6 +17,7 @@
       "command": "node",
       "args": ["${__dirname}/server/main.bundle.js"],
       "env": {
+        "NORTHCINDER_MODE": "self-hosted",
         "NORTHCINDER_SERVICE_URL": "${user_config.serviceUrl}",
         "NORTHCINDER_CLIENT_KEY": "${user_config.clientKey}",
         "NORTHCINDER_CONFIG_DIR": "${user_config.configDir}"
@@ -27,7 +28,7 @@
     "serviceUrl": {
       "type": "string",
       "title": "Your NorthCinder engine URL",
-      "description": "Base URL of the NorthCinder engine you run (local default: http://127.0.0.1:8790). The repository owner operates no endpoint.",
+      "description": "HTTPS base URL of the separately operated NorthCinder engine you control. Explicit loopback HTTP is also allowed. The repository owner operates no endpoint.",
       "required": true,
       "default": "http://127.0.0.1:8790"
     },

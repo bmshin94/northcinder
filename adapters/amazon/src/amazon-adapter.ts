@@ -119,7 +119,7 @@ export function createAmazonAdapter(config: AmazonAdapterConfig = {}): AmazonSto
   const manifest: AdapterManifest = {
     id: AMAZON_STORE_ID,
     name: "Amazon (user-session edge, spec §3A)",
-    version: "0.1.0",
+    version: "0.2.0",
     description:
       "Session-only Amazon adapter: Playwright in the user's own logged-in browser profile. Honest agent User-Agent, no CAPTCHA interaction, no human-input mimicry. Search + read-offer only; checkout stays in the user's hands.",
     permissions: { allowedHosts: [AMAZON_HOST], userSession: true },

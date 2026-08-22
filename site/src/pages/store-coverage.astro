@@ -43,8 +43,8 @@ const schemas = articleSchemas(page, breadcrumbs, faqs);
       <tbody>
         <tr>
           <td data-label="Store">Shopify</td>
-          <td data-label="NorthCinder path">Catalog search after additional Shopify setup</td>
-          <td data-label="External boundary">Current storefront and platform configuration</td>
+          <td data-label="NorthCinder path">Global and configured storefront catalog search through UCP</td>
+          <td data-label="External boundary">A buyer-controlled public HTTPS UCP agent profile is required</td>
         </tr>
         <tr>
           <td data-label="Store">WooCommerce</td>
@@ -72,11 +72,14 @@ const schemas = articleSchemas(page, breadcrumbs, faqs);
 
   <h2>Shopify</h2>
   <p>
-    NorthCinder's Shopify adapter supports catalog search after the operator completes the current Shopify
-    setup. The older assumption that every shop exposes the same per-store connection is no longer used. The
-    adapter reports configuration and upstream failures instead of converting them into an empty successful
-    search. Review Shopify's current <a href="https://shopify.dev/docs/apps/build/storefront-mcp/servers/storefront">Storefront MCP server documentation</a>
-    before configuring a shop.
+    NorthCinder uses Shopify's current UCP catalog interface. Global Catalog and configured Storefront Catalog
+    calls use <code>/api/ucp/mcp</code> and carry a public HTTPS UCP agent-profile URL controlled by the buyer.
+    Global results are bound to a seller and variant before refresh; seller-less clusters are skipped. The
+    optional compatibility bearer is attached only to the validated HTTPS Global Catalog endpoint. Review
+    Shopify's <a href="https://shopify.dev/docs/agents/catalog">catalog interface</a>,
+    <a href="https://shopify.dev/docs/agents/catalog/global-catalog">Global Catalog</a>, and
+    <a href="https://shopify.dev/changelog/storefront-catalog-mcp-now-implements-ucp">Storefront UCP migration notice</a>
+    before configuring the adapter. Fixture coverage does not prove current live access.
   </p>
 
   <h2>WooCommerce</h2>

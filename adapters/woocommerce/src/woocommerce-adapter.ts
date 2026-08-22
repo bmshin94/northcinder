@@ -1,10 +1,12 @@
 import {
-  AllowedHostSchema,
+  ChildSourceHostnameSchema,
   storeError,
+  toChildSourceError,
   type AdapterContext,
   type AdapterManifest,
   type AdapterOfferResult,
   type AdapterSearchResult,
+  type SourceStatus,
   type Offer,
   type SearchQuery,
   type StoreAdapter,
@@ -39,13 +41,15 @@ function httpFailureToStoreError(result: Extract<HttpResult, { ok: false }>, hos
 
 export function createWoocommerceAdapter(config: WoocommerceAdapterConfig = {}): StoreAdapter {
   const env = config.env ?? process.env;
-  const stores = config.stores ?? (env.WOOCOMMERCE_STORE_HOSTS ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  const stores = (config.stores ?? (env.WOOCOMMERCE_STORE_HOSTS ?? "").split(","))
+    .map((store) => store.trim().toLowerCase())
+    .filter(Boolean);
   const maxStoreConcurrency = config.maxStoreConcurrency ?? 4;
   const fetchImpl = config.fetchImpl;
 
   for (const host of stores) {
-    const parsed = AllowedHostSchema.safeParse(host);
-    if (!parsed.success || host.includes("*")) {
+    const parsed = ChildSourceHostnameSchema.safeParse(host);
+    if (!parsed.success) {
       throw new Error(
         `invalid WooCommerce store host ${JSON.stringify(host)}: must be a bare hostname (no scheme, path, port, or wildcard)`,
       );
@@ -55,7 +59,7 @@ export function createWoocommerceAdapter(config: WoocommerceAdapterConfig = {}):
   const manifest: AdapterManifest = {
     id: WOOCOMMERCE_STORE_ID,
     name: "WooCommerce Store API",
-    version: "0.1.0",
+    version: "0.2.0",
     description:
       "WooCommerce core's public, unauthenticated Store API (wp-json/wc/store/v1) — live by default, no credentials, per-store fan-out.",
     permissions: { allowedHosts: [...stores], userSession: false },
@@ -83,6 +87,9 @@ export function createWoocommerceAdapter(config: WoocommerceAdapterConfig = {}):
       { timeoutMs: ctx.timeoutMs, ...(ctx.signal ? { signal: ctx.signal } : {}), ...(fetchImpl ? { fetchImpl } : {}) },
     );
     if (!result.ok) return { ok: false, error: httpFailureToStoreError(result, host) };
+    if (result.status === 429) {
+      return { ok: false, error: storeError(WOOCOMMERCE_STORE_ID, "rate_limited", `${host}: Store API rate limited`, { ...(result.retryAfterMs !== undefined ? { retryAfterMs: result.retryAfterMs } : {}) }) };
+    }
     let body: unknown;
     try {
       body = JSON.parse(result.bodyText);
@@ -112,31 +119,37 @@ export function createWoocommerceAdapter(config: WoocommerceAdapterConfig = {}):
 
       const settled = await mapWithConcurrency(stores, maxStoreConcurrency, (host) => searchStore(host, query, ctx));
       const offers: Offer[] = [];
-      const failures: Array<{ host: string; code: string; message: string }> = [];
+      const sourceStatuses: SourceStatus[] = [];
+      const failures: Array<{ host: string; code: string; message: string; retryAfterMs?: number }> = [];
       settled.forEach((entry, i) => {
         const host = stores[i]!;
-        if (entry instanceof Error) failures.push({ host, code: "internal", message: "store adapter failed unexpectedly" });
-        else if (entry.ok) offers.push(...entry.offers);
-        else failures.push({ host, code: entry.error.code, message: entry.error.message });
+        if (entry instanceof Error) { const error = storeError(WOOCOMMERCE_STORE_ID, "internal", "store adapter failed unexpectedly", { retryable: false }); failures.push({ host, code: error.code, message: error.message }); sourceStatuses.push({ source: host, ok: false, error: toChildSourceError(error) }); }
+        else if (entry.ok) { offers.push(...entry.offers); sourceStatuses.push({ source: host, ok: true, offerCount: entry.offers.length }); }
+        else { failures.push({ host, code: entry.error.code, message: entry.error.message, ...(entry.error.retryAfterMs !== undefined ? { retryAfterMs: entry.error.retryAfterMs } : {}) }); sourceStatuses.push({ source: host, ok: false, error: toChildSourceError(entry.error) }); }
       });
       // A down host degrades gracefully — never fails the whole search as
       // long as at least one configured host answered.
       if (offers.length === 0 && failures.length === stores.length && stores.length > 0) {
         const allTimeout = failures.every((f) => f.code === "timeout");
+        const allRateLimited = failures.every((f) => f.code === "rate_limited");
+        const retryAfterMs = Math.max(...failures.flatMap((failure) => failure.retryAfterMs === undefined ? [] : [failure.retryAfterMs]));
         return {
           ok: false,
           error: storeError(
             WOOCOMMERCE_STORE_ID,
-            allTimeout ? "timeout" : "unavailable",
+            allTimeout ? "timeout" : allRateLimited ? "rate_limited" : "unavailable",
             `all ${stores.length} configured WooCommerce store(s) failed`,
-            { details: { failures } },
+            {
+              details: { failures },
+              ...(Number.isFinite(retryAfterMs) ? { retryAfterMs } : {}),
+            },
           ),
         };
       }
       // Each store already caps its own results to maxResults, but the
       // merged, multi-store total can still exceed it — cap the merged set.
       const capped = query.maxResults !== undefined ? offers.slice(0, query.maxResults) : offers;
-      return { ok: true, offers: capped };
+      return { ok: true, offers: capped, sourceStatuses };
     },
 
     async getOffer(offerId, ctx): Promise<AdapterOfferResult> {
@@ -148,7 +161,7 @@ export function createWoocommerceAdapter(config: WoocommerceAdapterConfig = {}):
           error: storeError(WOOCOMMERCE_STORE_ID, "not_found", `not a WooCommerce offer id: ${JSON.stringify(offerId)}`, { retryable: false }),
         };
       }
-      if (!stores.includes(decoded.host)) {
+      if (!stores.includes(decoded.host.toLowerCase())) {
         return {
           ok: false,
           error: storeError(

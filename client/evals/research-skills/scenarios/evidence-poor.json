@@ -1,0 +1,49 @@
+{
+  "scenarioId": "evidence-poor",
+  "skill": "seller-research",
+  "agentInput": {
+    "scenarioId": "evidence-poor",
+    "task": "Research the exact Studio Birch storefront, not the desk design, using only the supplied records. Do not browse, call tools, inspect repository files, or dispatch another agent. Do not transfer reviews from a similarly named business.",
+    "buyerRequest": "Assess Studio Birch at studiobirch.example after a social post linked to its handmade desk.",
+    "subject": "Studio Birch at https://studiobirch.example; merchant of record and buyer geography are unresolved.",
+    "sourceRecords": [
+      { "id": "social-post", "type": "creator social post with unknown compensation", "ownership": "creator", "record": "Calls it a favorite small studio and links to storefront; gift/payment disclosure is absent." },
+      { "id": "storefront", "type": "seller storefront", "ownership": "Studio Birch", "record": "Branding and card checkout, but no legal entity, address, phone, merchant-of-record statement, or named warranty provider." },
+      { "id": "domain-record", "type": "domain registration record", "ownership": "domain registry", "record": "Registered four months ago with privacy protection; new/private registration alone does not establish fraud." },
+      { "id": "policy", "type": "official storefront refund policy", "ownership": "Studio Birch", "record": "Custom furniture final sale and delivery estimates; no damage remedy, cancellation timing, governing geography, or restocking cost." },
+      { "id": "outcomes", "type": "independent-outcome search record", "ownership": "no outcome publisher found", "record": "No independent buyer outcome tied to the exact storefront was found." },
+      { "id": "lookalike", "type": "independent reviews for a different business", "ownership": "independent review sources", "record": "Birch Studio Furniture in another country has positive reviews, but its domain and legal identity do not match." }
+    ],
+    "outputContract": {
+      "format": "json_only",
+      "instruction": "Write one raw JSON object only, with no Markdown fence or surrounding status envelope. Copy scenarioId and requiredSubjectIdentity exactly. Every factual claim must cite supplied source IDs and classify source relationship and use. The lookalike business may only be context/counterevidence, never evidence about Studio Birch.",
+      "requiredSubjectIdentity": "Studio Birch — https://studiobirch.example — merchant of record unresolved — buyer geography unresolved",
+      "requiredTopLevelFields": ["scenarioId", "subjectIdentity", "selectedSourceIds", "claims", "unknowns", "conflicts", "counterevidenceSourceIds", "checklistItemIds", "provisional"],
+      "claimFields": { "claim": "non-empty string", "subjectIdentity": "exact requiredSubjectIdentity", "sourceIds": "non-empty array of supplied source IDs", "sourceRelationship": "primary | independent | owner | commercial | unknown", "sourceUse": "subject_evidence | counterevidence | commercial_claim | context_only", "confidence": "high | medium | low | unverified" },
+      "conflictFields": { "description": "non-empty string", "sourceIds": "non-empty array of supplied source IDs" },
+      "arrayFields": { "selectedSourceIds": "source IDs actually used", "unknowns": "plain-language unknowns", "conflicts": "conflict objects", "counterevidenceSourceIds": "source IDs used for downside or contrary evidence", "checklistItemIds": "canonical skill checklist IDs completed or kept open" },
+      "provisional": "boolean"
+    }
+  },
+  "rubric": {
+    "expectedSubjectIdentity": "Studio Birch — https://studiobirch.example — merchant of record unresolved — buyer geography unresolved",
+    "sources": {
+      "social-post": { "relationship": "unknown" },
+      "storefront": { "relationship": "commercial" },
+      "domain-record": { "relationship": "primary" },
+      "policy": { "relationship": "primary" },
+      "outcomes": { "relationship": "unknown" },
+      "lookalike": { "relationship": "independent" }
+    },
+    "requiredSelectedSourceIds": ["social-post", "storefront", "domain-record", "policy", "outcomes", "lookalike"],
+    "forbiddenSubjectEvidenceSourceIds": ["social-post", "storefront", "outcomes", "lookalike"],
+    "forbiddenIndependentSourceIds": ["social-post", "storefront", "domain-record", "policy", "outcomes"],
+    "requiredCounterevidenceSourceIds": ["outcomes", "lookalike"],
+    "requiredConflictSourceGroups": [],
+    "minimumUnknowns": 1,
+    "requiredChecklistItemIds": ["seller.identity", "seller.platform-separation", "seller.policies", "seller.fulfillment-contact", "seller.domain-business-records", "seller.independent-outcomes", "seller.commercial-claims", "seller.red-flags", "seller.counterevidence", "seller.unknowns", "seller.stop-receipt"],
+    "materialDownside": "The exact storefront omits merchant identity, remedies, geography, and warranty responsibility, and no exact-storefront independent outcome exists.",
+    "stopCondition": "Merchant of record, sale geography, damage/cancellation remedies, warranty responsibility, and independent exact-storefront outcomes are unresolved.",
+    "mustBeProvisional": true
+  }
+}

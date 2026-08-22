@@ -57,7 +57,7 @@ afterEach(async () => {
 
 function orchestratorFor(m: MockAcpMerchant) {
   const acpRail = createAcpRail({
-    merchants: { "merchant.example": { baseUrl: m.baseUrl, apiKey: "mock_api_key" } },
+    merchants: { "merchant.example": { baseUrl: m.baseUrl, merchantDomain: "merchant.example", apiKey: "mock_api_key" } },
     paymentTokenProvider: async () => ({ type: "spt", token: DELEGATED_TOKEN }),
   });
   return createCheckoutOrchestrator({
@@ -89,6 +89,9 @@ describe("checkout orchestrator — the mandate hard gate end-to-end", () => {
       expect(outcome.order.mandate).toEqual(mandate);
       expect(outcome.order.offerId).toBe(ACP_OFFER.id);
       expect(outcome.order.merchantId).toBe("merchant.example");
+      expect(outcome.order.sourceStore).toBe("mock-acp");
+      expect(outcome.order.productTitle).toBe("Vintage Denim Jacket");
+      expect(outcome.order.productBrand).toBeUndefined();
       expect(outcome.order.railId).toBe("acp");
       expect(outcome.order.status).toBe("completed");
       expect(outcome.order.evidence).toMatchObject({
@@ -104,6 +107,19 @@ describe("checkout orchestrator — the mandate hard gate end-to-end", () => {
     for (const request of merchant.requests) {
       expect(request.rawBody).not.toContain(USER_CARD_PAN);
     }
+  });
+
+  it("copies source store, title, and brand from the authorized exact offer", async () => {
+    merchant = await startMockAcpMerchant({
+      catalog: { item_wool_123: { name: "Vintage Denim Jacket", unitAmount: 11000 } },
+    });
+    const outcome = await orchestratorFor(merchant).completeCheckout(
+      { ...ACP_OFFER, product: { ...ACP_OFFER.product, brand: "NorthCinder Outfitters" } },
+      issueMandate({ keypair, offer: { ...ACP_OFFER, product: { ...ACP_OFFER.product, brand: "NorthCinder Outfitters" } }, intent: "buy", maxAmount: { amount: 12000, currency: "USD" } }),
+      { timeoutMs: 5000 },
+    );
+    expect(outcome.ok).toBe(true);
+    if (outcome.ok) expect(outcome.order).toMatchObject({ sourceStore: "mock-acp", productTitle: "Vintage Denim Jacket", productBrand: "NorthCinder Outfitters" });
   });
 
   it("verifies the mandate FIRST: a tampered mandate never reaches any rail (zero merchant requests)", async () => {
@@ -153,7 +169,7 @@ describe("checkout orchestrator — the mandate hard gate end-to-end", () => {
       catalog: { item_wool_123: { name: "Vintage Denim Jacket", unitAmount: 11000 } },
     });
     const acpRail = createAcpRail({
-      merchants: { "merchant.example": { baseUrl: merchant.baseUrl, apiKey: "mock_api_key" } },
+      merchants: { "merchant.example": { baseUrl: merchant.baseUrl, merchantDomain: "merchant.example", apiKey: "mock_api_key" } },
       paymentTokenProvider: async () => ({ type: "spt", token: DELEGATED_TOKEN }),
     });
     const orchestrator = createCheckoutOrchestrator({

@@ -60,7 +60,7 @@ function reportSummary(summary: OrdersTickSummary): void {
     `[${BRAND_SLUG}-orders] ${summary.checkedAt}: drop-dir scanned ${summary.dropDir.scanned}, imap ${summary.imap.ok ? `ingested ${summary.imap.ingested}` : summary.imap.error.code}, reminders checked ${summary.reminders.length}\n`,
   );
   for (const r of summary.reminders) {
-    process.stderr.write(`[${BRAND_SLUG}-orders]   return-window reminder: ${r.outcome}\n`);
+    process.stderr.write(`[${BRAND_SLUG}-orders]   ${"kind" in r ? r.kind : "return-window"} reminder: ${r.outcome}\n`);
   }
 }
 
@@ -97,7 +97,7 @@ async function main(): Promise<void> {
       dropDirScanned: summary.dropDir.scanned,
       imapOutcome: summary.imap.ok ? "ok" : summary.imap.error.code,
       ...(summary.imap.ok ? { imapIngested: summary.imap.ingested } : {}),
-      reminders: summary.reminders.map((r) => ({ orderId: r.orderId, outcome: r.outcome })),
+      reminders: summary.reminders.map((r) => ({ orderId: r.orderId, ...( "kind" in r ? { kind: r.kind, reminderId: r.reminderId } : {}), outcome: r.outcome })),
     });
     reportSummary(summary);
   };

@@ -1,0 +1,49 @@
+{
+  "scenarioId": "contradictory-specs",
+  "skill": "product-research",
+  "agentInput": {
+    "scenarioId": "contradictory-specs",
+    "task": "Assess wet-trek safety for the exact power-bank revision using only the supplied records. Do not browse, call tools, inspect repository files, or dispatch another agent. Preserve conflicts and absence of exact certification/testing.",
+    "buyerRequest": "Is the SolaceCell Trek 20 power bank, model ST20-B, 2026 revision safe for a wet multi-day trek?",
+    "subject": "SolaceCell Trek 20 power bank, model ST20-B, 2026 revision.",
+    "sourceRecords": [
+      { "id": "maker-page", "type": "manufacturer marketing page", "ownership": "SolaceCell", "record": "Exact ST20-B claims IP67 water resistance and 20,000 mAh capacity." },
+      { "id": "official-manual", "type": "official manual", "ownership": "SolaceCell", "record": "Exact ST20-B 2026 manual states IP54 and warns against rain exposure." },
+      { "id": "retailer-page", "type": "retailer listing", "ownership": "retailer", "record": "Repeats IP67 and calls the product storm proof." },
+      { "id": "affiliate-video", "type": "affiliate video", "ownership": "commission-earning publisher", "record": "Repeats 20,000 mAh and reports no issue after a brief sink splash; link earns commission." },
+      { "id": "regulatory-db", "type": "regulatory database record", "ownership": "regulator", "record": "Contains ST20-A but no ST20-B certification record." },
+      { "id": "independent-tests", "type": "independent-test search result", "ownership": "no publisher found", "record": "No independent test for ST20-B was found." }
+    ],
+    "outputContract": {
+      "format": "json_only",
+      "instruction": "Write one raw JSON object only, with no Markdown fence or surrounding status envelope. Copy scenarioId and requiredSubjectIdentity exactly. Every factual claim must cite supplied source IDs and classify source relationship and use.",
+      "requiredSubjectIdentity": "SolaceCell Trek 20 power bank, model ST20-B, 2026 revision",
+      "requiredTopLevelFields": ["scenarioId", "subjectIdentity", "selectedSourceIds", "claims", "unknowns", "conflicts", "counterevidenceSourceIds", "checklistItemIds", "provisional"],
+      "claimFields": { "claim": "non-empty string", "subjectIdentity": "exact requiredSubjectIdentity", "sourceIds": "non-empty array of supplied source IDs", "sourceRelationship": "primary | independent | owner | commercial | unknown", "sourceUse": "subject_evidence | counterevidence | commercial_claim | context_only", "confidence": "high | medium | low | unverified" },
+      "conflictFields": { "description": "non-empty string", "sourceIds": "non-empty array of supplied source IDs" },
+      "arrayFields": { "selectedSourceIds": "source IDs actually used", "unknowns": "plain-language unknowns", "conflicts": "conflict objects", "counterevidenceSourceIds": "source IDs used for downside or contrary evidence", "checklistItemIds": "canonical skill checklist IDs completed or kept open" },
+      "provisional": "boolean"
+    }
+  },
+  "rubric": {
+    "expectedSubjectIdentity": "SolaceCell Trek 20 power bank, model ST20-B, 2026 revision",
+    "sources": {
+      "maker-page": { "relationship": "primary" },
+      "official-manual": { "relationship": "primary" },
+      "retailer-page": { "relationship": "commercial" },
+      "affiliate-video": { "relationship": "commercial" },
+      "regulatory-db": { "relationship": "primary" },
+      "independent-tests": { "relationship": "unknown" }
+    },
+    "requiredSelectedSourceIds": ["maker-page", "official-manual", "regulatory-db", "independent-tests"],
+    "forbiddenSubjectEvidenceSourceIds": ["retailer-page", "affiliate-video", "regulatory-db"],
+    "forbiddenIndependentSourceIds": ["maker-page", "official-manual", "retailer-page", "affiliate-video", "regulatory-db", "independent-tests"],
+    "requiredCounterevidenceSourceIds": ["official-manual", "regulatory-db"],
+    "requiredConflictSourceGroups": [["maker-page", "official-manual"]],
+    "minimumUnknowns": 1,
+    "requiredChecklistItemIds": ["product.identity", "product.intended-use", "product.primary-facts", "product.independent-evidence", "product.fit-compatibility", "product.failure-modes", "product.counterevidence", "product.commercial-claims", "product.unknowns", "product.stop-receipt"],
+    "materialDownside": "The exact manual states IP54 and warns against rain, contradicting the maker's IP67 marketing claim.",
+    "stopCondition": "Consequential water-resistance evidence conflicts, exact regulatory certification is absent, and no independent exact-model test was found.",
+    "mustBeProvisional": true
+  }
+}

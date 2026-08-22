@@ -11,17 +11,17 @@ not require an API key. The current tools are `search_catalog`, `lookup_catalog`
 Shopify deprecated the former Storefront Catalog endpoint and tool shapes and stated that they would
 be maintained only until June 15, 2026.
 
-NorthCinder's implementation is only partly migrated:
+NorthCinder uses the current UCP catalog paths offline; fixture coverage is not a live-provider claim.
 
 | Leg | Current NorthCinder behavior | Honest status |
 | --- | --- | --- |
-| Global Catalog search | Calls `https://catalog.shopify.com/api/ucp/mcp`, sends `meta["ucp-agent"].profile` from `SHOPIFY_UCP_AGENT_PROFILE_URL`, and calls `search_catalog`. | Matches the current search endpoint and profile-URL shape. An optional `SHOPIFY_GLOBAL_CATALOG_API_KEY` compatibility bearer is supported by the code but is not required by Shopify's current catalog documentation. The real endpoint is not part of offline acceptance. |
-| Per-store search | Calls `https://<shop>/api/mcp` with the pre-UCP request shape. | Legacy implementation. Do not describe this as current live support; it needs `/api/ucp/mcp` and current UCP response migration. |
-| Offer details | Calls the configured product's store at `/api/mcp` with `get_product_details`. | Legacy implementation. It needs migration to current `get_product` before end-to-end current Shopify support can be claimed. |
+| Global Catalog search and refresh | Calls `https://catalog.shopify.com/api/ucp/mcp`; every call carries `meta["ucp-agent"].profile` and uses `search_catalog` or `get_product` with `catalog.id`. Global Catalog UPIDs refresh here only through seller-and-variant-bound Global offer IDs. | Seller-less Global clusters are skipped rather than inferred from a URL or cluster price. The optional `SHOPIFY_GLOBAL_CATALOG_API_KEY` compatibility bearer is sent only when configured. |
+| Storefront Catalog search and refresh | Calls `https://<shop>/api/ucp/mcp`; every call carries the same profile and uses `search_catalog` or `get_product` with `catalog.id`. | Configured hosts are bounded and allowlisted. A Global failure can fall back to configured storefronts. |
 
-If a profile URL is configured, NorthCinder tries Global Catalog search first. If that fails and legacy
-per-store hosts are also configured, it falls back to those hosts. A profile URL is a URL to JSON
-the buyer controls; it is not an AI-provider token or a credential issued by NorthCinder.
+NorthCinder requires a profile URL for every Shopify call. It must be HTTPS and contain no userinfo.
+NorthCinder tries Global Catalog search first; if it fails and storefront hosts are configured, it falls
+back to those hosts. The profile URL points to JSON the buyer controls; it is not an AI-provider token
+or a credential issued by NorthCinder.
 
 Official references:
 
@@ -39,7 +39,7 @@ createShopifyAdapter({
     apiKey: "...",
     url: "https://catalog.shopify.com/api/ucp/mcp",
   },
-  // Legacy per-store fallback until NorthCinder completes its UCP migration:
+  // Optional Storefront Catalog fallback (also UCP):
   shops: ["www.allbirds.com"],
 })
 ```
@@ -50,7 +50,7 @@ The matching environment variables are `SHOPIFY_UCP_AGENT_PROFILE_URL`,
 
 - `manifest.permissions.allowedHosts` contains exactly the catalog host and explicitly configured
   shop hosts. Wildcards, schemes, paths, and ports in shop-host configuration are rejected.
-- Calls use NorthCinder's bounded HTTP helper, the per-shop fan-out is concurrency-capped, and one legacy
+- Calls use NorthCinder's bounded HTTP helper, the per-shop fan-out is concurrency-capped, and one
   shop failure does not hide the others.
 - NorthCinder does not request Shopify's `catalog.placements` option. Shopify says omitting that field
   returns organic results rather than promoted placements; the adapter also adds no affiliate
@@ -66,6 +66,5 @@ a current native Shopify response revalidates them. NorthCinder does not receive
 ## Tests and live verification
 
 `pnpm test` is offline and uses historical captured responses plus fixtures. A fixture passing does
-not prove the retired per-store endpoint still works. `pnpm live-check` contacts real stores when
-explicitly run; until the remaining UCP migration is complete and a dated live run passes, it must
-not be presented as current end-to-end Shopify evidence.
+not prove current third-party access. `pnpm live-check` contacts real stores only when explicitly run;
+no live run is included in this repository acceptance evidence.

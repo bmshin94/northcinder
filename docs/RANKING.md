@@ -50,6 +50,25 @@ must-have attributes, delivery deadline, availability, merchant trust, and
 ethics preferences. Every ranked result carries machine-readable `reasons`
 naming the criteria that produced its position.
 
+## Decision evidence and current-search context
+
+Exact product identity, complete known landed-cost components, return-policy
+facts, warranty facts, and sourced research claims feed explicit decision
+readiness and provenance. Missing or incomplete evidence keeps a decision
+provisional. Sourced claims do not change rank, score, or tie-breaking;
+ranking remains the deterministic policy below.
+
+The canonical product subject must contain every declared variant, model,
+generation, and identifier value. Evidence is bound to a unique canonical JSON
+`[sourceStore, offerId]` tuple and merges incrementally by logical claim;
+omitted facts and unresolved claims do not disappear. Readiness displays at
+most 16 conflict and unknown summaries per offer while reporting exact totals
+and whether either list was truncated.
+
+Buyer context (subject, intended use, occasion, location, and owned-item
+compatibility) belongs to the current search session. It is echoed for that
+search so the buyer can correct it, but is not written into the local audit.
+
 <!-- BEGIN GENERATED: northcinder-ranking-spec (do not edit by hand) -->
 
 ### Score weights (`RANK_WEIGHTS` in `packages/protocol/src/ranking/rank.ts`)
@@ -70,6 +89,32 @@ naming the criteria that produced its position.
 | `flaggedPenalty` | −40 | the merchant's trust signal is `flagged` |
 | `ethicsMatchFull` | +8 | scaled by the fraction of the buyer's `ethicsFlags` the offer matches |
 
+### Named criteria policy
+
+- **`required` criteria do not change scores.** A failed requirement places the
+  offer in the eliminated tier and adds the criterion id, importance, and one of
+  these stable codes:
+  `required_attribute_missing`,
+  `required_price_exceeded`,
+  `required_delivery_missed`,
+  `required_delivery_unknown`,
+  `required_ethics_missing`, or
+  `required_availability_mismatch`.
+- **`preferred` criteria use fixed code-owned points.** Callers cannot provide
+  weights, component scores, or final scores.
+
+| Preferred kind | Fixed points |
+| --- | --- |
+| `attribute` | +12 on match; 0 on miss |
+| `max_price` | +10 on match; 0 on miss |
+| `delivery_by` | +8 on match; 0 on miss |
+| `ethics` | +6 on match; 0 on miss |
+| `availability` | +4 on match; 0 on miss |
+
+- **`tie_breaker` criteria add zero points.** They compare typed facts only when
+  main scores are equal: lower price, earlier known delivery, an attribute or
+  ethics match, then equality with the requested availability value.
+
 ### Rules the score never sees
 
 - **Sponsored placement is NOT a score input.** `sponsored: true` contributes zero
@@ -83,11 +128,15 @@ naming the criteria that produced its position.
 ### Ordering
 
 Tiers, in order: non-sponsored before sponsored (primary — the brand promise),
-then buyable before out-of-stock (secondary — a buyer cannot buy what isn't there;
-tested property: setting `out_of_stock` can never raise a rank). Within a tier,
-offers are ordered by score (desc), then price (asc), then offer id (asc) — a
-total, input-order-independent order. The ranking is pure and deterministic: no
-clock, no randomness, no I/O; same inputs → byte-identical output.
+then candidates meeting all named requirements before eliminated candidates, then
+buyable before out-of-stock (a buyer cannot buy what isn't there; tested property:
+setting `out_of_stock` can never raise a rank). Main score follows. When scores are
+equal, named tie breakers run in query order, then price (asc), then the canonical
+JSON `[sourceStore, offerId]` tuple (asc) provides a collision-free total,
+input-order-independent order. The ranking is pure and
+deterministic: no clock, no randomness, no I/O; same inputs → byte-identical output.
+Without named tie breakers, the legacy fallback remains score (desc), then price (asc), then the canonical store-scoped offer tuple (asc).
+Within one source store, that reduces to score (desc), then price (asc), then offer id (asc).
 
 <!-- END GENERATED: northcinder-ranking-spec -->
 

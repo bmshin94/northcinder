@@ -91,6 +91,23 @@ test("an unconfigured local build fails closed without fake coordinates or index
   }
 });
 
+test("the public install and checkout pages state the 0.2.0 local and quantity-one contracts", () => {
+  buildSite();
+  const install = readFileSync(join(siteDir, "dist", "install", "index.html"), "utf8");
+  const checkout = readFileSync(join(siteDir, "dist", "checkout-safety", "index.html"), "utf8");
+
+  assert.doesNotMatch(install, /local client key|buyer-run engine command/i);
+  assert.match(install, /ordinary local mode is keyless/i);
+  assert.match(install, /one MCP-host entry/i);
+  assert.match(install, /ephemeral loopback/i);
+  assert.match(install, /no fixed port or second service command/i);
+
+  assert.match(checkout, /one unit per mandate/i);
+  assert.match(checkout, /multi-unit checkout\s+is not supported in 0\.2\.0/i);
+  assert.match(checkout, /different item needs a fresh approval/i);
+  assert.doesNotMatch(checkout, /exact number of units being authorized|different item or quantity/i);
+});
+
 test("a configured public build emits consistent metadata, schema, crawler, and sitemap contracts", () => {
   const origin = "https://launch-42.net";
   const repository = "https://github.com/acme-labs/northcinder";

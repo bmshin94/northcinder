@@ -26,6 +26,7 @@ import { BRAND_NAME } from "../src/brand.js";
 import { createAuthorizationStore, type AuthorizationStore } from "../src/authorization.js";
 import { composeApprovalPush, createLocalUiApp, generateSessionToken, startLocalUi } from "../src/local-ui.js";
 import { createOrderStore } from "../src/order-store.js";
+import type { PersistedDecisionState } from "../src/decision-state.js";
 import { renderOrderTuple } from "../src/order-tuple.js";
 import { createNorthCinderMcpServer } from "../src/server.js";
 import type { NorthCinderServiceClient } from "../src/service-client.js";
@@ -87,6 +88,42 @@ function form(fields: Record<string, string>): { method: "POST"; headers: Record
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams(fields).toString(),
+  };
+}
+
+function decisionState(searchId = "search_decision"): PersistedDecisionState {
+  return {
+    searchId,
+    request: "Black wool runners under $130",
+    criteria: { text: "Black wool runners under $130", maxPrice: { amount: 13000, currency: "USD" } },
+    candidates: [
+      {
+        role: "top_fit", roleReason: "Best fit for the stated criteria", rank: 1, sourceStore: "shopify", offerId: "decision-1",
+        title: "Wool Runner", url: "https://store.example/wool-runner", merchant: { id: "store.example", name: "Store <script>" },
+        imageUrl: "https://store.example/wool-runner.png",
+        productIdentity: { canonical: "Wool Runner — natural black — EU 43", variant: "natural black — EU 43", identifiers: [] },
+        price: { amount: 12000, currency: "USD" }, availability: "in_stock", sponsored: false,
+        sellerState: "trusted", freshness: { status: "known", observedAt: "2026-08-20T10:00:00.000Z" }, verificationState: "merchant_verified",
+        decisionStatus: "provisional", importantUnknowns: ["Confirm exact size"], decisiveDownside: "Delivery estimate is not confirmed",
+        whyThis: ["Matches material and budget"], tradeoffs: [{ dimension: "delivery", detail: "No delivery date" }],
+      },
+      {
+        role: "budget_or_different", roleReason: "Lower price with an evidence tradeoff", rank: 2, sourceStore: "shopify", offerId: "decision-2",
+        title: "Budget Runner", url: "javascript:alert(1)", merchant: { id: "other.example", name: "Other" },
+        imageUrl: "javascript:alert(2)",
+        price: { amount: 9900, currency: "USD" }, availability: "in_stock", sponsored: true,
+        sellerState: "unknown", freshness: { status: "unknown" }, verificationState: "agent_observed",
+        decisionStatus: "provisional", importantUnknowns: ["Seller history unknown"], decisiveDownside: "Sponsored placement is disclosed",
+        whyThis: ["Lower initial price"], tradeoffs: [{ dimension: "trust", detail: "Trust evidence unknown" }],
+      },
+    ],
+    coverage: [{ store: "shopify", status: "searched", offerCount: 2 }, { store: "etsy", status: "blocked", offerCount: 0, detail: "fixture block" }],
+    unresolvedResearchQuestions: ["Confirm the exact size before buying."],
+    readiness: { status: "provisional", reasons: ["Exact identity remains unconfirmed"] },
+    projectionWarnings: ["Candidate names were shortened for the local Decisions display."],
+    chosenOffer: null,
+    outcome: null,
+    profileEffects: { applied: [], overridden: [] },
   };
 }
 
@@ -157,6 +194,67 @@ describe("session-token gate — EVERY route, reads AND mutations", () => {
     const denied = await app.request(`/dashboard`, { headers: { origin: "https://evil.example" } });
     expect(denied.headers.get("access-control-allow-origin")).toBeNull();
     expect(denied.headers.get("x-frame-options")).toBe("DENY");
+  });
+});
+
+describe("dashboard — Decisions read model", () => {
+  it("renders newest-first bounded decision records with native details, safe links, and explicit no-outcome copy", async () => {
+    const { store, auditPath } = makeHarness();
+    const app = createLocalUiApp({
+      sessionToken: TOKEN,
+      authorizations: store,
+      audit: { path: auditPath, append() {} },
+      readDecisionStates(path) {
+        expect(path).toBe(auditPath);
+        return { states: [decisionState("newest"), decisionState("older")], invalidRecords: 1 };
+      },
+    });
+    const html = await (await app.request(`/dashboard?t=${TOKEN}&tab=decisions`)).text();
+    expect(html).toContain('href="/dashboard?t=' + TOKEN + '&tab=decisions"');
+    expect(html).toContain('aria-current="page"');
+    expect(html.indexOf("newest")).toBeLessThan(html.indexOf("older"));
+    expect(html).toContain("TOP FIT");
+    expect(html).toContain("BUDGET OR DIFFERENT");
+    expect(html).toContain("No candidate has been chosen.");
+    expect(html).toContain("No lifecycle outcome is recorded.");
+    expect(html).toContain("1 invalid decision record was skipped");
+    expect(html).toContain('<details class="decision-row">');
+    expect(html).toContain("Details and evidence");
+    expect(html).toContain('href="https://store.example/wool-runner"');
+    expect(html).toContain('href="https://store.example/wool-runner.png"');
+    expect(html).toContain('>product image</a>');
+    expect(html).toContain("natural black — EU 43");
+    expect(html).toContain("Variant</dt><dd>unknown");
+    expect(html).toContain("Candidate names were shortened for the local Decisions display.");
+    expect(html).not.toContain('href="javascript:');
+    expect(html).not.toContain("<img");
+    expect(html).toContain("Confirm the exact size before buying.");
+    expect(html).toContain("min-height: 44px");
+  });
+
+  it("shows an actionable empty state and uses the existing recovery surface when the bounded reader fails", async () => {
+    const { store, auditPath } = makeHarness();
+    const empty = createLocalUiApp({
+      sessionToken: TOKEN,
+      authorizations: store,
+      audit: { path: auditPath, append() {} },
+      readDecisionStates: () => ({ states: [], invalidRecords: 0 }),
+    });
+    const emptyHtml = await (await empty.request(`/dashboard?t=${TOKEN}&tab=decisions`)).text();
+    expect(emptyHtml).toContain("No saved decisions yet.");
+    expect(emptyHtml).toContain("Run a comparison in your MCP host");
+
+    const failing = createLocalUiApp({
+      sessionToken: TOKEN,
+      authorizations: store,
+      audit: { path: auditPath, append() {} },
+      readDecisionStates() { throw new Error("private path must not leak"); },
+    });
+    const failed = await failing.request(`/dashboard?t=${TOKEN}&tab=decisions`);
+    expect(failed.status).toBe(200);
+    const failedHtml = await failed.text();
+    expect(failedHtml).toContain("Decision data could not be read safely.");
+    expect(failedHtml).not.toContain("private path");
   });
 });
 
@@ -512,6 +610,19 @@ describe("the page door approves/declines through the SAME gate", () => {
 
 // ---------------------------------------------------------------------------
 describe("dashboard — profile editor", () => {
+  it("renders pending proposals separately and escapes their buyer-local values", async () => {
+    const { app, profile } = makeHarness();
+    profile.add({ kind: "brand", brand: "Scoped", stance: "allow", scope: { kind: "subject", value: `<script>recipient</script>` } }, { origin: "stated", source: "dashboard" });
+    profile.recordBrandProposal({ brand: `<script>Acme</script>`, stance: "deny", reason: "fit", scope: { kind: "project", value: `<img src=x>` }, evidenceKey: "offer:1", source: "record_feedback" });
+    const html = await (await app.request(`/dashboard?t=${TOKEN}&tab=profile`)).text();
+    expect(html).toContain("PENDING PROPOSALS");
+    expect(html).toContain("&lt;script&gt;Acme&lt;/script&gt;");
+    expect(html).not.toContain("<script>Acme</script>");
+    expect(html).toContain("scope: subject, value: &lt;script&gt;recipient&lt;/script&gt;");
+    expect(html).toContain("scope: project, value: &lt;img src=x&gt;");
+    expect(html).not.toContain("NaN undefined");
+    expect(html).toContain("not preferences until confirmed or repeated");
+  });
   it("exposes dashboard landmarks, active navigation, table headers, labeled fields, and contextual controls", async () => {
     const { app, profile, configDir } = makeHarness();
     profile.add(
@@ -623,6 +734,26 @@ describe("dashboard — profile editor", () => {
 
 // ---------------------------------------------------------------------------
 describe("dashboard — watches, audit browser, orders", () => {
+  it("projects pending, sent, and expired-unsent return reminders without buyer-local paths or notification secrets", async () => {
+    const { store, orders, configDir } = makeHarness();
+    for (const orderId of ["pending", "sent", "expired"]) {
+      orders.append({ orderId, createdAt: "2026-08-01T00:00:00.000Z", sourceStore: "shopify", offerId: orderId, productTitle: "Item", merchantId: "shop.example", merchantDomain: "shop.example", railId: "acp", status: "completed", mandateId: "m", mandate: { constraints: { maxAmount: { amount: 1, currency: "USD" } } } as never, evidence: { rail: "acp" } as never });
+    }
+    const graph = {
+      getOrder(id: string) {
+        const deadline = id === "expired" ? "2020-01-01" : "2099-01-01";
+        return { order: { id, merchantName: "Shop", orderDate: "2026-08-01T00:00:00.000Z", items: [], status: "confirmed", source: { kind: "import" as const } }, shipments: [], returnWindow: { orderId: id, deadline, basis: "stated_deadline" as const, ...(id === "sent" ? { reminderSentAt: "2026-08-02T00:00:00.000Z" } : {}) } };
+      },
+      listOrders() { return []; }, listOutcomes() { return []; }, listLifecycleReminders() { return []; },
+    } as unknown as ReturnType<typeof createOrderGraphStore>;
+    const app = createLocalUiApp({ sessionToken: TOKEN, authorizations: store, audit: { path: join(configDir, "audit.jsonl"), append() {} }, orders, orderGraph: graph });
+    const html = await (await app.request(`/dashboard?t=${TOKEN}&tab=orders`)).text();
+    expect(html).toContain("return: pending");
+    expect(html).toContain("return: sent");
+    expect(html).toContain("return: expired-unsent");
+    expect(html).not.toContain(configDir);
+    expect(html).not.toContain("super-secret");
+  });
   it("lists watches with exact content (state, name, target, channel TYPE only) and cancels via POST", async () => {
     const { app, watches, auditPath } = makeHarness();
     const watch = watches.create({
@@ -674,7 +805,10 @@ describe("dashboard — watches, audit browser, orders", () => {
       orderId: "order_dash_1",
       createdAt: "2026-07-04T12:00:00.000Z",
       offerId: OFFER.id,
+      sourceStore: OFFER.sourceStore,
+      productTitle: OFFER.product.title,
       merchantId: OFFER.merchant.id,
+      merchantDomain: OFFER.merchant.domain,
       railId: "acp",
       status: "completed",
       mandateId: "mandate_dash_1",
@@ -949,11 +1083,12 @@ describe("dashboard — watches, audit browser, orders", () => {
     }
   });
 
-  it("empty states are honest, and all four tabs answer 200", async () => {
+  it("empty states are honest, and every dashboard tab answers 200", async () => {
     const { app } = makeHarness();
     for (const [tab, marker] of [
       ["profile", "STATED"],
       ["watches", "No price watches yet"],
+      ["decisions", "No saved decisions yet"],
       ["audit", "the audit trail is empty"],
       ["orders", "No orders yet"],
     ] as const) {
@@ -1066,5 +1201,25 @@ describe("startLocalUi + approval push composition", () => {
     expect(push.body).toContain("http://127.0.0.1:5555/approve/auth_push_1?t=tok");
     expect(push.clickUrl).toBe("http://127.0.0.1:5555/approve/auth_push_1?t=tok");
     expect(push.body).toContain("never in this push");
+  });
+
+  it("shows persisted watch health timestamps without exposing channel secrets", async () => {
+    const harness = makeHarness();
+    const watch = harness.watches.create({
+      name: "health watch",
+      target: { kind: "query", query: { text: "fairphone" } },
+      targetPrice: { amount: 50000, currency: "EUR" },
+      channel: { type: "ntfy", topic: "private-health-topic" },
+    });
+    harness.watches.update(watch.id, {
+      lastSuccessAt: "2026-07-05T12:00:00.000Z",
+      lastFailureAt: "2026-07-05T11:00:00.000Z",
+      nextEligibleCheckAt: "2026-07-05T13:00:00.000Z",
+    });
+    const html = await (await harness.app.request(`/dashboard?t=${TOKEN}&tab=watches`)).text();
+    expect(html).toContain("last success 2026-07-05T12:00:00.000Z");
+    expect(html).toContain("last failure 2026-07-05T11:00:00.000Z");
+    expect(html).toContain("eligible 2026-07-05T13:00:00.000Z");
+    expect(html).not.toContain("private-health-topic");
   });
 });

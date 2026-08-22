@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   InterpretedQuerySchema,
+  BrandPreferenceProposalSchema,
+  BuyerContextSchema,
   ProfileEntryInputSchema,
   ProfileEntrySchema,
   ProfileOriginSchema,
+  PreferenceReasonSchema,
+  PreferenceScopeSchema,
 } from "../src/index.js";
 
 const BASE = {
@@ -63,6 +67,48 @@ describe("profile entry schemas (open contract)", () => {
     } as Record<string, unknown>);
     expect("origin" in smuggled).toBe(false);
     expect("id" in smuggled).toBe(false);
+  });
+
+  it("accepts bounded, strict preference scopes and caller-supplied scope/expiry entries", () => {
+    for (const kind of ["subject", "category", "project"] as const) {
+      expect(PreferenceScopeSchema.safeParse({ kind, value: "sneakers" }).success).toBe(true);
+    }
+    expect(PreferenceScopeSchema.safeParse({ kind: "subject", value: "" }).success).toBe(false);
+    expect(PreferenceScopeSchema.safeParse({ kind: "subject", value: "sneakers", extra: true }).success).toBe(false);
+    expect(
+      ProfileEntryInputSchema.safeParse({
+        kind: "brand",
+        brand: "Acme",
+        stance: "deny",
+        scope: { kind: "project", value: "birthday" },
+        expiresAt: "2026-08-01T00:00:00.000Z",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("keeps buyerContext.project bounded and ephemeral at the query schema boundary", () => {
+    expect(BuyerContextSchema.safeParse({ project: "birthday" }).success).toBe(true);
+    expect(BuyerContextSchema.safeParse({ project: "x".repeat(501) }).success).toBe(false);
+  });
+
+  it("exposes strict conservative brand proposals with unique evidence", () => {
+    expect(PreferenceReasonSchema.safeParse("wrong_recipient").success).toBe(true);
+    expect(PreferenceReasonSchema.safeParse("because").success).toBe(false);
+    const proposal = {
+      id: "proposal_1",
+      kind: "brand",
+      brand: "Acme",
+      stance: "deny",
+      reason: "fit",
+      scope: { kind: "subject", value: "dad" },
+      evidenceKeys: ["ebay:item-1"],
+      source: "record_feedback:not_interested offer ebay:item-1",
+      createdAt: "2026-07-05T10:00:00.000Z",
+      updatedAt: "2026-07-05T10:00:00.000Z",
+    };
+    expect(BrandPreferenceProposalSchema.safeParse(proposal).success).toBe(true);
+    expect(BrandPreferenceProposalSchema.safeParse({ ...proposal, evidenceKeys: ["ebay:item-1", "ebay:item-1"] }).success).toBe(false);
+    expect(BrandPreferenceProposalSchema.safeParse({ ...proposal, extra: true }).success).toBe(false);
   });
 
   it("InterpretedQuery discloses merged criteria, applied entries by id+origin, overridden entries, and unmatched words", () => {

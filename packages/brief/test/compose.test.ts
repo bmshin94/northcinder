@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   rankOffers,
+  trustKey,
   type InterpretedQuery,
   type Offer,
   type SearchQuery,
@@ -233,6 +234,14 @@ describe("composeBuyersBrief — 10-offer fixture through the real neutrality ra
     ]);
   });
 
+  it("coverage gives bounded partial-host detail without hiding the responding parent store", () => {
+    const brief = composeBuyersBrief({ searchId: "partial", results: rankOffers(TEN_OFFERS, CRITERIA, { trust: TRUST }), interpretedQuery: INTERPRETED, trustSignals: TRUST, storeStatuses: [{ store: "shopify", ok: true, offerCount: 10, durationMs: 1, sourceStatuses: [
+      { source: "catalog.shopify.com", ok: true, offerCount: 10 },
+      { source: "broken-shop.example", ok: false, error: { store: "shopify", code: "timeout", message: "source request timed out", retryable: true } },
+    ] }] });
+    expect(brief.coverage).toEqual([{ store: "shopify", status: "searched", offerCount: 10, detail: "partial: 1 configured source failed" }]);
+  });
+
   it("a sponsored finalist is badged and NEVER above a criteria-better non-sponsored one (order inherited)", () => {
     // 2 organic + 1 sponsored (the CHEAPEST offer) → sponsored still ranks last.
     const offers = [
@@ -304,6 +313,156 @@ describe("composeBuyersBrief — 10-offer fixture through the real neutrality ra
     });
     expect(brief.finalists).toHaveLength(0);
     expect(brief.rejected).toHaveLength(2);
+  });
+
+  it("projects at most three honest roles from evidence without mutating the five-finalist rank order", () => {
+    const results = rankOffers(TEN_OFFERS, CRITERIA, { trust: TRUST });
+    const riskTrust = {
+      ...TRUST,
+      [trustKey(TEN_OFFERS[0]!.merchant)]: trust("trusted.example", "unknown"),
+      [trustKey(TEN_OFFERS[1]!.merchant)]: trust("known.example", "trusted"),
+    };
+    const brief = composeBuyersBrief({
+      searchId: "search_roles",
+      results,
+      interpretedQuery: INTERPRETED,
+      storeStatuses: STATUSES,
+      trustSignals: riskTrust,
+      evidence: [
+        {
+          sourceStore: "ebay",
+          offerId: "o2",
+          productIdentity: {
+            canonical: "Wool Runner o2 exact variant",
+            variant: "exact variant",
+            identifiers: [],
+          },
+          landedCost: {
+            components: [{ kind: "item_price", amount: { amount: 10500, currency: "USD" } }],
+            knownTotal: { amount: 10500, currency: "USD" },
+            unknownComponents: [],
+            completeness: "complete",
+          },
+          claims: [],
+        },
+      ],
+      decisionReadiness: {
+        status: "provisional",
+        reasons: ["some offers need research"],
+        qualifyingOfferKeys: ['["ebay","o1"]', '["ebay","o2"]', '["ebay","o6"]', '["ebay","o4"]', '["ebay","o3"]'],
+        offers: [
+          {
+            offerKey: '["ebay","o1"]',
+            status: "provisional",
+            gaps: ["seller.policies"],
+            conflicts: ["A return-policy conflict remains."],
+            totalConflictCount: 1,
+            conflictsTruncated: false,
+            unknowns: ["Warranty is not confirmed."],
+            totalUnknownCount: 1,
+            unknownsTruncated: false,
+            remainingChecklistItemIds: ["seller.policies"],
+          },
+          {
+            offerKey: '["ebay","o2"]',
+            status: "ready",
+            gaps: [],
+            conflicts: [],
+            totalConflictCount: 0,
+            conflictsTruncated: false,
+            unknowns: [],
+            totalUnknownCount: 0,
+            unknownsTruncated: false,
+            remainingChecklistItemIds: [],
+          },
+        ],
+      },
+    });
+
+    expect(brief.finalists.map((finalist) => finalist.offerId)).toEqual(["o1", "o2", "o6", "o4", "o3"]);
+    expect(brief.decisionSummary).toEqual([
+      { role: "top_fit", sourceStore: "ebay", offerId: "o1", roleReason: "First qualifying finalist in the neutrality ranking." },
+      { role: "lower_risk", sourceStore: "ebay", offerId: "o2", roleReason: "Has a lower evidence-risk tuple than the top fit." },
+      { role: "budget_or_different", sourceStore: "ebay", offerId: "o6", roleReason: "A distinct remaining finalist for comparison." },
+    ]);
+    expect(brief.finalists[0]).toMatchObject({
+      decisionStatus: "provisional",
+      sellerState: "unknown",
+      verificationState: "merchant_verified",
+      importantUnknowns: [
+        "Exact product identity is not confirmed.",
+        "Landed cost is not confirmed.",
+        "Warranty is not confirmed.",
+        "Seller policies still need confirmation.",
+      ],
+      decisiveDownside: "Seller trust is unknown.",
+    });
+    expect(brief.finalists[1]).toMatchObject({
+      decisionStatus: "ready",
+      productIdentity: { canonical: "Wool Runner o2 exact variant" },
+      landedCost: { completeness: "complete" },
+    });
+  });
+
+  it("keeps missing decision evidence explicitly provisional and never invents a lower-risk role", () => {
+    const brief = tenOfferBrief();
+    expect(brief.decisionSummary).toEqual([
+      { role: "top_fit", sourceStore: "ebay", offerId: "o1", roleReason: "First qualifying finalist in the neutrality ranking." },
+      { role: "budget_or_different", sourceStore: "ebay", offerId: "o2", roleReason: "A distinct remaining finalist for comparison." },
+    ]);
+    expect(brief.finalists[0]).toMatchObject({
+      freshness: { status: "known", observedAt: FETCHED_AT },
+      verificationState: "merchant_verified",
+      decisionStatus: "provisional",
+      importantUnknowns: [
+        "Exact product identity is not confirmed.",
+        "Landed cost is not confirmed.",
+        "Research readiness is unknown.",
+      ],
+    });
+  });
+
+  it("excludes an equal-or-riskier remaining finalist from lower_risk and chooses the cheapest same-currency budget role", () => {
+    const ranked = rankOffers(
+      [
+        offer("role-top", 10000, {}),
+        offer("role-cheap-1", 9000, {}),
+        offer("role-cheap-2", 8000, {}),
+        offer("role-cheap-3", 8000, {}),
+      ],
+      { text: "wool sneakers" },
+      {},
+    );
+    const inOriginalRankOrder = ["role-top", "role-cheap-1", "role-cheap-2", "role-cheap-3"].map(
+      (offerId) => ranked.find((result) => result.offer.id === offerId)!,
+    );
+    const brief = composeBuyersBrief({
+      searchId: "search_cheaper_role",
+      results: inOriginalRankOrder,
+      interpretedQuery: { criteria: { text: "wool sneakers" }, appliedProfileEntries: [], overriddenProfileEntries: [], unmatchedQueryWords: [] },
+      storeStatuses: [{ store: "ebay", ok: true, offerCount: 4, durationMs: 1 }],
+    });
+
+    expect(brief.finalists.map((finalist) => finalist.offerId)).toEqual(["role-top", "role-cheap-1", "role-cheap-2", "role-cheap-3"]);
+    expect(brief.decisionSummary).toEqual([
+      { role: "top_fit", sourceStore: "ebay", offerId: "role-top", roleReason: "First qualifying finalist in the neutrality ranking." },
+      { role: "budget_or_different", sourceStore: "ebay", offerId: "role-cheap-2", roleReason: "Cheaper same-currency remaining finalist." },
+    ]);
+    expect(brief.decisionSummary.some((entry) => entry.role === "lower_risk")).toBe(false);
+  });
+
+  it("does not pad a budget-or-different role when every remaining finalist is materially identical", () => {
+    const ranked = rankOffers([offer("same-1", 10000, {}), offer("same-2", 10000, {})], { text: "wool sneakers" }, {});
+    const brief = composeBuyersBrief({
+      searchId: "search_no_padding",
+      results: ranked,
+      interpretedQuery: { criteria: { text: "wool sneakers" }, appliedProfileEntries: [], overriddenProfileEntries: [], unmatchedQueryWords: [] },
+      storeStatuses: [{ store: "ebay", ok: true, offerCount: 2, durationMs: 1 }],
+    });
+
+    expect(brief.decisionSummary).toEqual([
+      { role: "top_fit", sourceStore: "ebay", offerId: "same-1", roleReason: "First qualifying finalist in the neutrality ranking." },
+    ]);
   });
 });
 
@@ -408,7 +567,7 @@ describe("rejected-appendix overflow wording is numerically true", () => {
     expect(brief.finalists).toHaveLength(5);
     const cut = brief.rejected.find((r) => r.offerId === "t6")!;
     expect(cut.eliminatedBy).toEqual([
-      "outranked on your criteria: tied with the last finalist (score 75.00) and ranked below on the deterministic tie-break (price, then offer id)",
+      "outranked on your criteria: tied with the last finalist (score 75.00) and ranked below on the deterministic tie-break (price, then store-scoped offer tuple)",
     ]);
   });
 

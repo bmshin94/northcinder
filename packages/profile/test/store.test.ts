@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -8,7 +8,94 @@ function tempDir(): string {
   return mkdtempSync(join(tmpdir(), "northcinder-profile-"));
 }
 
+function currentProcessStartIdentity(): string {
+  const stat = readFileSync("/proc/self/stat", "utf8");
+  const fieldsAfterCommand = stat.slice(stat.lastIndexOf(")") + 1).trim().split(/\s+/);
+  return fieldsAfterCommand[19]!;
+}
+
 describe("profile store — stated vs inferred lifecycle", () => {
+  it("loads version-1 profiles written before proposals as an empty proposal list", () => {
+    const dir = tempDir();
+    writeFileSync(
+      join(dir, PROFILE_FILENAME),
+      JSON.stringify({ version: 1, entries: [{ id: "pref_legacy", origin: "stated", source: "update_profile", createdAt: "2026-07-01T00:00:00.000Z", kind: "brand", brand: "Legacy", stance: "allow" }] }),
+      { mode: 0o600 },
+    );
+    const store = createProfileStore({ configDir: dir });
+    expect(store.list()).toHaveLength(1);
+    expect(store.listProposals()).toEqual([]);
+  });
+
+  it("holds one brand reaction as a pending proposal, deduplicating repeated evidence", () => {
+    const store = createProfileStore({ configDir: tempDir(), now: () => new Date("2026-07-05T10:00:00.000Z") });
+    const first = store.recordBrandProposal({ brand: "Acme", stance: "deny", reason: "fit", evidenceKey: "ebay:item-1", source: "record_feedback:not_interested offer ebay:item-1" });
+    expect(first).toMatchObject({ kind: "pending", proposal: { kind: "brand", brand: "Acme", evidenceKeys: ["ebay:item-1"] } });
+    const again = store.recordBrandProposal({ brand: " acme ", stance: "deny", reason: "fit", evidenceKey: "ebay:item-1", source: "record_feedback:not_interested offer ebay:item-1" });
+    expect(again).toMatchObject({ kind: "pending", proposal: { id: first.proposal.id, evidenceKeys: ["ebay:item-1"] } });
+    expect(store.list()).toEqual([]);
+    expect(store.listProposals()).toHaveLength(1);
+  });
+
+  it("promotes a second distinct evidence key once into one inferred brand entry", () => {
+    const store = createProfileStore({ configDir: tempDir(), now: () => new Date("2026-07-05T10:00:00.000Z") });
+    store.recordBrandProposal({ brand: "Acme", stance: "deny", reason: "fit", evidenceKey: "ebay:item-1", source: "feedback ebay:item-1", scope: { kind: "project", value: "birthday" } });
+    const promoted = store.recordBrandProposal({ brand: "acme", stance: "deny", reason: "fit", evidenceKey: "etsy:item-2", source: "feedback etsy:item-2", scope: { kind: "project", value: "birthday" } });
+    expect(promoted).toMatchObject({ kind: "promoted", entry: { kind: "brand", brand: "Acme", stance: "deny", origin: "inferred", source: "feedback ebay:item-1", scope: { kind: "project", value: "birthday" } } });
+    expect(store.listProposals()).toEqual([]);
+    expect(store.list()).toHaveLength(1);
+    expect(statSync(store.path).mode & 0o777).toBe(0o600);
+  });
+
+  it("resolves a proposal to an existing matching brand entry without duplication", () => {
+    const store = createProfileStore({ configDir: tempDir() });
+    const existing = store.add(
+      { kind: "brand", brand: "Acme", stance: "deny", scope: { kind: "subject", value: "dad" } },
+      { origin: "stated", source: "update_profile" },
+    );
+    store.recordBrandProposal({ brand: "acme", stance: "deny", reason: "fit", evidenceKey: "ebay:item-1", source: "feedback", scope: { kind: "subject", value: "dad" } });
+    const resolved = store.recordBrandProposal({ brand: "Acme", stance: "deny", reason: "fit", evidenceKey: "etsy:item-2", source: "feedback", scope: { kind: "subject", value: "dad" } });
+    expect(resolved).toEqual({ kind: "resolved", entry: existing });
+    expect(store.list()).toEqual([existing]);
+    expect(store.listProposals()).toEqual([]);
+  });
+
+  it("preserves a live holder's profile lock and proposal bytes, failing visibly", () => {
+    const dir = tempDir();
+    const store = createProfileStore({ configDir: dir });
+    const pending = store.recordBrandProposal({ brand: "Acme", stance: "deny", reason: "fit", evidenceKey: "ebay:item-1", source: "feedback" });
+    const lockPath = `${store.path}.lock`;
+    writeFileSync(lockPath, JSON.stringify({ pid: process.pid, processStart: currentProcessStartIdentity(), acquiredAt: "2026-08-21T00:00:00.000Z" }), { mode: 0o600 });
+    const before = readFileSync(store.path, "utf8");
+
+    expect(() => store.confirmProposal(pending.proposal.id)).toThrow(/another process holds the profile lock; wait or retry/i);
+    expect(readFileSync(store.path, "utf8")).toBe(before);
+    expect(store.listProposals()).toEqual([pending.proposal]);
+    expect(existsSync(lockPath)).toBe(true);
+  });
+
+  it("recovers a dead profile lock before promoting a proposal", () => {
+    const dir = tempDir();
+    const store = createProfileStore({ configDir: dir });
+    store.recordBrandProposal({ brand: "Acme", stance: "deny", reason: "fit", evidenceKey: "ebay:item-1", source: "feedback" });
+    writeFileSync(`${store.path}.lock`, JSON.stringify({ pid: 999_999_999, acquiredAt: "2026-08-21T00:00:00.000Z" }), { mode: 0o600 });
+
+    expect(store.recordBrandProposal({ brand: "Acme", stance: "deny", reason: "fit", evidenceKey: "etsy:item-2", source: "feedback" })).toMatchObject({ kind: "promoted" });
+    expect(existsSync(`${store.path}.lock`)).toBe(false);
+    expect(store.list()).toHaveLength(1);
+  });
+
+  it("confirms a pending proposal as stated and dismisses one without an entry", () => {
+    const store = createProfileStore({ configDir: tempDir() });
+    const pending = store.recordBrandProposal({ brand: "Acme", stance: "allow", reason: "style", evidenceKey: "ebay:item-1", source: "feedback" });
+    const confirmed = store.confirmProposal(pending.proposal.id);
+    expect(confirmed).toMatchObject({ kind: "confirmed", entry: { kind: "brand", brand: "Acme", stance: "allow", origin: "stated" } });
+    const dismissed = store.recordBrandProposal({ brand: "Other", stance: "deny", reason: "price", evidenceKey: "ebay:item-2", source: "feedback" });
+    expect(store.dismissProposal(dismissed.proposal.id)).toEqual({ dismissed: true });
+    expect(store.list()).toHaveLength(1);
+    expect(store.listProposals()).toEqual([]);
+  });
+
   it("add() assigns id, createdAt and the CALLER-CHOSEN origin + source; list() returns the entry", () => {
     const dir = tempDir();
     const store = createProfileStore({ configDir: dir, now: () => new Date("2026-07-05T10:00:00.000Z") });

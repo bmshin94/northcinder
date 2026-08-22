@@ -93,6 +93,65 @@ export const ReturnWindowSchema = z.object({
 });
 export type ReturnWindow = z.infer<typeof ReturnWindowSchema>;
 
+export const PurchaseOutcomeStateSchema = z.enum(["kept", "returned", "cancelled", "failed"]);
+export type PurchaseOutcomeState = z.infer<typeof PurchaseOutcomeStateSchema>;
+
+export const FitCompatibilityResultSchema = z.enum(["fit", "did_not_fit", "compatible", "incompatible", "not_assessed"]);
+export type FitCompatibilityResult = z.infer<typeof FitCompatibilityResultSchema>;
+
+export const PredictionErrorSchema = z.enum(["fit", "compatibility", "price", "delivery", "quality", "seller", "none"]);
+export type PredictionError = z.infer<typeof PredictionErrorSchema>;
+
+export const MerchantDeliveryOutcomeSchema = z.enum(["on_time", "late", "failed", "unknown"]);
+export type MerchantDeliveryOutcome = z.infer<typeof MerchantDeliveryOutcomeSchema>;
+
+export const MerchantSupportOutcomeSchema = z.enum(["helpful", "unhelpful", "not_used", "unknown"]);
+export type MerchantSupportOutcome = z.infer<typeof MerchantSupportOutcomeSchema>;
+
+export const PurchaseOutcomeInputSchema = z
+  .object({
+    orderId: z.string().min(1),
+    state: PurchaseOutcomeStateSchema,
+    fitOrCompatibility: FitCompatibilityResultSchema.optional(),
+    predictionError: PredictionErrorSchema.optional(),
+    merchantDelivery: MerchantDeliveryOutcomeSchema.optional(),
+    merchantSupport: MerchantSupportOutcomeSchema.optional(),
+    wouldChooseAgain: z.boolean().optional(),
+  })
+  .strict();
+export type PurchaseOutcomeInput = z.infer<typeof PurchaseOutcomeInputSchema>;
+
+export const PurchaseOutcomeSchema = PurchaseOutcomeInputSchema.extend({ recordedAt: z.iso.datetime() }).strict();
+export type PurchaseOutcome = z.infer<typeof PurchaseOutcomeSchema>;
+
+const LifecycleReminderInputShape = {
+  kind: z.enum(["warranty", "maintenance"]),
+  dueOn: z.iso.date(),
+  remindOn: z.iso.date(),
+  detail: z.string().min(1).max(500),
+};
+
+function rejectInvertedReminderDate(value: { dueOn: string; remindOn: string }, context: z.RefinementCtx): void {
+  if (value.remindOn > value.dueOn) {
+    context.addIssue({ code: "custom", path: ["remindOn"], message: "remindOn must not be after dueOn" });
+  }
+}
+
+export const LifecycleReminderInputSchema = z.object(LifecycleReminderInputShape).strict().superRefine(rejectInvertedReminderDate);
+export type LifecycleReminderInput = z.infer<typeof LifecycleReminderInputSchema>;
+
+export const LifecycleReminderSchema = z
+  .object({
+    id: z.string().min(1),
+    orderId: z.string().min(1),
+    ...LifecycleReminderInputShape,
+    createdAt: z.iso.datetime(),
+    reminderSentAt: z.iso.datetime().optional(),
+  })
+  .strict()
+  .superRefine(rejectInvertedReminderDate);
+export type LifecycleReminder = z.infer<typeof LifecycleReminderSchema>;
+
 /**
  * An email that no parser plugin (including the generic fallback) could
  * confidently parse. NEVER dropped — the raw subject is retained so a human

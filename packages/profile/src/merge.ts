@@ -56,12 +56,28 @@ function isoDatePlusDays(now: Date, days: number): string {
   return new Date(now.getTime() + days * 86_400_000).toISOString().slice(0, 10);
 }
 
+function scopeMatches(entry: ProfileEntry, query: SearchQuery, tokens: string[]): boolean {
+  if (entry.scope === undefined) return true;
+  switch (entry.scope.kind) {
+    case "subject":
+      return query.buyerContext?.subject === entry.scope.value;
+    case "project":
+      return query.buyerContext?.project === entry.scope.value;
+    case "category":
+      return categoryMatches(entry.scope.value, tokens);
+  }
+}
+
 export function interpretQuery(
   query: SearchQuery,
   entries: ProfileEntry[],
   now: () => Date = () => new Date(),
 ): InterpretedQuery {
   const tokens = tokenize(query.text);
+  const currentTime = now();
+  const eligibleEntries = entries.filter(
+    (entry) => (entry.expiresAt === undefined || Date.parse(entry.expiresAt) > currentTime.getTime()) && scopeMatches(entry, query, tokens),
+  );
   const criteria: SearchQuery = structuredClone(query);
   const applied: AppliedProfileEntry[] = [];
   const overridden: OverriddenProfileEntry[] = [];
@@ -77,7 +93,7 @@ export function interpretQuery(
   });
 
   // ---- budget defaults (by category): fill maxPrice; latest matching entry wins
-  const budgets = entries
+  const budgets = eligibleEntries
     .filter((e) => e.kind === "budget" && categoryMatches(e.category, tokens))
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const budget = budgets[budgets.length - 1];
@@ -93,7 +109,7 @@ export function interpretQuery(
   }
 
   // ---- sizes (by category): append to mustHaveAttributes unless already stated
-  for (const e of entries) {
+  for (const e of eligibleEntries) {
     if (e.kind !== "size" || !categoryMatches(e.category, tokens)) continue;
     const citation = cite(e, "mustHaveAttributes", `size for "${e.category}": ${e.value}`);
     interpretedCategories.push(e.category);
@@ -110,7 +126,7 @@ export function interpretQuery(
   }
 
   // ---- standing ethics flags: union into ethicsFlags (per-query flags first)
-  for (const e of entries) {
+  for (const e of eligibleEntries) {
     if (e.kind !== "ethics") continue;
     const citation = cite(e, "ethicsFlags", `ethics flag "${e.flag}"`);
     const existing = criteria.ethicsFlags ?? [];
@@ -123,13 +139,13 @@ export function interpretQuery(
   }
 
   // ---- delivery default: fill deliveryBy = today + maxDays; tightest default wins
-  const deliveries = entries.filter((e) => e.kind === "delivery");
+  const deliveries = eligibleEntries.filter((e) => e.kind === "delivery");
   const delivery = deliveries.reduce<(typeof deliveries)[number] | undefined>(
     (best, e) => (e.kind === "delivery" && (best === undefined || (best.kind === "delivery" && e.maxDays < best.maxDays)) ? e : best),
     undefined,
   );
   if (delivery && delivery.kind === "delivery") {
-    const date = isoDatePlusDays(now(), delivery.maxDays);
+    const date = isoDatePlusDays(currentTime, delivery.maxDays);
     const citation = cite(delivery, "deliveryBy", `delivery within ${delivery.maxDays} day(s) → ${date}`);
     if (criteria.deliveryBy === undefined) {
       criteria.deliveryBy = date;

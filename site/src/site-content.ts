@@ -10,7 +10,7 @@ export interface SitePage {
 
 const sharedDates = {
   published: '2026-08-17',
-  modified: '2026-08-18',
+  modified: '2026-08-22',
 } as const;
 
 export const SITE_PAGES = {

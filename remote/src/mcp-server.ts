@@ -47,7 +47,7 @@ import { interpretQuery } from "@northcinder/profile";
 import type { NorthCinderServiceClient } from "./service-client.js";
 
 export const NORTHCINDER_REMOTE_MCP_SERVER_NAME = "northcinder-remote";
-export const NORTHCINDER_REMOTE_MCP_SERVER_VERSION = "0.1.0";
+export const NORTHCINDER_REMOTE_MCP_SERVER_VERSION = "0.2.0";
 
 export interface NorthCinderRemoteMcpServerDeps {
   service: NorthCinderServiceClient;
@@ -151,6 +151,12 @@ export function createNorthCinderRemoteMcpServer(deps: NorthCinderRemoteMcpServe
         deliveryBy: z.iso.date().optional().describe("latest acceptable delivery date (ISO 8601 date)"),
         ethicsFlags: z.array(z.string().min(1)).optional().describe('buyer ethics preferences, e.g. "fair-trade"'),
         maxResults: z.int().positive().max(100).optional().describe("soft cap on results per store"),
+        buyerContext: SearchQuerySchema.shape.buyerContext.describe(
+          "optional session-local buyer context (subject, intended use, occasion, location, or owned-item compatibility); it is not persisted by this stateless bridge",
+        ),
+        criteria: SearchQuerySchema.shape.criteria.describe(
+          "optional named criteria: required eliminates mismatches; preferred uses fixed NorthCinder policy; tie_breaker compares typed facts only after equal main scores. Do not send caller weights, component scores, or final scores.",
+        ),
       },
       outputSchema: {
         results: z.array(RankedResultSchema),

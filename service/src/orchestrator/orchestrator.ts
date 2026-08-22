@@ -1,33 +1,30 @@
 import {
   OfferSchema,
+  SourceStatusSchema,
   storeError,
   type AdapterSearchResult,
+  type AdapterOfferResult,
   type Offer,
   type SearchQuery,
   type StoreAdapter,
   type StoreError,
   type StoreStatus,
+  type SourceStatus,
 } from "@northcinder/protocol";
 import { Semaphore } from "./semaphore.js";
 
 /**
  * Aggregation orchestrator (reliability and safety backbone):
  * parallel fan-out across registered store adapters with, per adapter call:
- * a hard timeout, bounded retry with jittered exponential backoff (retryable
- * errors only), and a per-host concurrency cap. One store failing NEVER fails
+ * a hard timeout and a per-host concurrency cap. Provider HTTP owns retries;
+ * one store failing NEVER fails
  * the search — every store's outcome is reported in `storeStatuses`.
  */
 export interface OrchestratorConfig {
   /** Hard per-attempt budget for one adapter call. Default 2000ms. */
   adapterTimeoutMs?: number;
-  /** Extra attempts after the first, for retryable errors only. Default 1. */
-  maxRetries?: number;
-  /** Base backoff delay; attempt n waits base·2ⁿ·jitter. Default 50ms. */
-  retryBaseDelayMs?: number;
   /** Max concurrent in-flight calls per host. Default 4. */
   perHostConcurrency?: number;
-  /** Injectable randomness for the jitter (tests). Default Math.random. */
-  random?: () => number;
   /**
    * Injectable clock for the `fetchedAt` provenance stamp (tests).
    * Default: current time as an ISO 8601 datetime.
@@ -47,12 +44,11 @@ export interface Orchestrator {
   registerAdapter(adapter: StoreAdapter): void;
   registeredStoreIds(): string[];
   search(query: SearchQuery): Promise<SearchOutcome>;
+  getOffer(store: string, offerId: string): Promise<AdapterOfferResult>;
 }
 
 const DEFAULTS = {
   adapterTimeoutMs: 2000,
-  maxRetries: 1,
-  retryBaseDelayMs: 50,
   perHostConcurrency: 4,
 } as const;
 
@@ -135,20 +131,13 @@ export function containsUnsafeAgentFacingText(value: unknown): boolean {
   return false;
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
 export function createOrchestrator(
   adapters: StoreAdapter[],
   config: OrchestratorConfig = {},
 ): Orchestrator {
   const cfg = {
     adapterTimeoutMs: config.adapterTimeoutMs ?? DEFAULTS.adapterTimeoutMs,
-    maxRetries: config.maxRetries ?? DEFAULTS.maxRetries,
-    retryBaseDelayMs: config.retryBaseDelayMs ?? DEFAULTS.retryBaseDelayMs,
     perHostConcurrency: config.perHostConcurrency ?? DEFAULTS.perHostConcurrency,
-    random: config.random ?? Math.random,
     now: config.now ?? (() => new Date().toISOString()),
   };
 
@@ -224,19 +213,25 @@ export function createOrchestrator(
     }
   }
 
-  /** Bounded retry with full-jitter exponential backoff, retryable errors only. */
-  async function searchWithRetry(
+  async function attemptOffer(
     adapter: StoreAdapter,
-    query: SearchQuery,
+    offerId: string,
     onCallSettled?: (p: Promise<unknown>) => void,
-  ): Promise<AdapterSearchResult> {
-    let last: AdapterSearchResult = await attemptSearch(adapter, query, onCallSettled);
-    for (let retry = 1; retry <= cfg.maxRetries; retry++) {
-      if (last.ok || !last.error.retryable) return last;
-      await sleep(cfg.retryBaseDelayMs * 2 ** (retry - 1) * cfg.random());
-      last = await attemptSearch(adapter, query, onCallSettled);
-    }
-    return last;
+  ): Promise<AdapterOfferResult> {
+    const store = adapter.manifest.id;
+    const controller = new AbortController();
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<AdapterOfferResult>((resolve) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        resolve({ ok: false, error: storeError(store, "timeout", `offer refresh timed out after ${cfg.adapterTimeoutMs}ms`, { retryable: true }) });
+      }, cfg.adapterTimeoutMs);
+    });
+    const call = adapter.getOffer(offerId, { timeoutMs: cfg.adapterTimeoutMs, signal: controller.signal }).catch(
+      (): AdapterOfferResult => ({ ok: false, error: storeError(store, "internal", "store adapter failed unexpectedly", { retryable: false }) }),
+    );
+    onCallSettled?.(call);
+    try { return await Promise.race([call, timeout]); } finally { clearTimeout(timer); }
   }
 
   function validateOffers(store: string, offers: Offer[]): { offers: Offer[] } | { error: StoreError } {
@@ -284,7 +279,7 @@ export function createOrchestrator(
     const pendingCalls: Array<Promise<unknown>> = [];
     let result: AdapterSearchResult;
     try {
-      result = await searchWithRetry(adapter, query, (p) => pendingCalls.push(p));
+      result = await attemptSearch(adapter, query, (p) => pendingCalls.push(p));
     } finally {
       // Release the per-host slot only once every underlying adapter call
       // this attempt spawned has truly settled. An abandoned (timed-out)
@@ -304,9 +299,15 @@ export function createOrchestrator(
     if ("error" in validated) {
       return { offers: [], status: { store, ok: false, error: validated.error, durationMs } };
     }
+    const sourceStatuses = result.sourceStatuses?.map((sourceStatus) => SourceStatusSchema.safeParse(sourceStatus));
+    if (sourceStatuses?.some((sourceStatus) =>
+      !sourceStatus.success || (!sourceStatus.data.ok && sourceStatus.data.error.store !== store),
+    )) {
+      return { offers: [], status: { store, ok: false, error: storeError(store, "invalid_response", "store returned invalid source statuses", { retryable: false }), durationMs } };
+    }
     return {
       offers: validated.offers,
-      status: { store, ok: true, offerCount: validated.offers.length, durationMs },
+      status: { store, ok: true, offerCount: validated.offers.length, durationMs, ...(sourceStatuses !== undefined ? { sourceStatuses: sourceStatuses.map((sourceStatus) => (sourceStatus as { success: true; data: SourceStatus }).data) } : {}) },
     };
   }
 
@@ -321,6 +322,24 @@ export function createOrchestrator(
         offers: perStore.flatMap((s) => s.offers),
         storeStatuses: perStore.map((s) => s.status),
       };
+    },
+    async getOffer(store: string, offerId: string): Promise<AdapterOfferResult> {
+      const adapter = registry.get(store);
+      if (adapter === undefined) return { ok: false, error: storeError(store, "not_configured", "store adapter is not registered", { retryable: false }) };
+      const limiter = limiterFor(adapter);
+      await limiter.acquire();
+      const pendingCalls: Array<Promise<unknown>> = [];
+      let result: AdapterOfferResult;
+      try { result = await attemptOffer(adapter, offerId, (p) => pendingCalls.push(p)); }
+      finally { void Promise.allSettled(pendingCalls).finally(() => limiter.release()); }
+      if (!result.ok) return result;
+      const validated = validateOffers(store, [result.offer]);
+      if ("error" in validated) return { ok: false, error: validated.error };
+      const offer = validated.offers[0]!;
+      if (offer.id !== offerId) {
+        return { ok: false, error: storeError(store, "invalid_response", "store returned an offer with mismatched requested tuple", { retryable: false, details: { requestedOfferId: offerId, claimedOfferId: offer.id } }) };
+      }
+      return { ok: true, offer };
     },
   };
 }

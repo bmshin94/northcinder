@@ -1,0 +1,49 @@
+{
+  "scenarioId": "fuzzy-request",
+  "skill": "product-research",
+  "agentInput": {
+    "scenarioId": "fuzzy-request",
+    "task": "Research the buyer's fuzzy trail-shoe request using only the supplied source records. Do not browse, call tools, inspect repository files, or dispatch another agent. Keep unresolved exact-size fit visibly provisional.",
+    "buyerRequest": "I need trail shoes for long runs on rocky desert paths. My forefoot is wide and my heels slip in many shoes. I care more about stable fit and heat comfort than race weight.",
+    "subject": "KestrelPeak Ridge 3, men's wide; the buyer's size and sale region are not supplied.",
+    "sourceRecords": [
+      { "id": "maker-ridge3", "type": "manufacturer product page", "ownership": "KestrelPeak", "record": "Ridge 3 men's standard and wide stack, drop, and weight claims; no fit measurements." },
+      { "id": "retailer-ridge3", "type": "retailer marketing", "ownership": "retailer", "record": "Calls Ridge 3 perfect for every trail runner and reports 4.8/5 without separating widths." },
+      { "id": "lab-ridge2", "type": "independent laboratory test", "ownership": "independent lab", "record": "Measurements for Ridge 2 standard width only: narrow toebox and poor breathability." },
+      { "id": "review-ridge3-wide", "type": "independent review", "ownership": "independent publisher", "record": "Ridge 3 men's wide, US 10: heel movement on steep descents and moderate breathability." },
+      { "id": "forum-ridge3", "type": "owner reports with unresolved identity", "ownership": "individual posters", "record": "Mixed reports often omit size and width; some report heel slip." },
+      { "id": "maker-return", "type": "manufacturer return policy", "ownership": "KestrelPeak", "record": "Outdoor-worn shoes are excluded from returns." }
+    ],
+    "outputContract": {
+      "format": "json_only",
+      "instruction": "Write one raw JSON object only, with no Markdown fence or surrounding status envelope. Copy scenarioId exactly. Use the resolved subject string specified below; do not silently fill unknown size or region. Every factual claim must cite source IDs and classify how those sources are being used.",
+      "requiredSubjectIdentity": "KestrelPeak Ridge 3, men's wide, size unspecified, region unspecified",
+      "requiredTopLevelFields": ["scenarioId", "subjectIdentity", "selectedSourceIds", "claims", "unknowns", "conflicts", "counterevidenceSourceIds", "checklistItemIds", "provisional"],
+      "claimFields": { "claim": "non-empty string", "subjectIdentity": "exact requiredSubjectIdentity", "sourceIds": "non-empty array of supplied source IDs", "sourceRelationship": "primary | independent | owner | commercial | unknown", "sourceUse": "subject_evidence | counterevidence | commercial_claim | context_only", "confidence": "high | medium | low | unverified" },
+      "conflictFields": { "description": "non-empty string", "sourceIds": "non-empty array of supplied source IDs" },
+      "arrayFields": { "selectedSourceIds": "source IDs actually used", "unknowns": "non-empty plain-language unknowns when provisional", "conflicts": "conflict objects", "counterevidenceSourceIds": "source IDs used for downside or contrary evidence", "checklistItemIds": "canonical skill checklist IDs completed or kept open" },
+      "provisional": "boolean"
+    }
+  },
+  "rubric": {
+    "expectedSubjectIdentity": "KestrelPeak Ridge 3, men's wide, size unspecified, region unspecified",
+    "sources": {
+      "maker-ridge3": { "relationship": "primary" },
+      "retailer-ridge3": { "relationship": "commercial" },
+      "lab-ridge2": { "relationship": "independent" },
+      "review-ridge3-wide": { "relationship": "independent" },
+      "forum-ridge3": { "relationship": "unknown" },
+      "maker-return": { "relationship": "primary" }
+    },
+    "requiredSelectedSourceIds": ["maker-ridge3", "review-ridge3-wide", "maker-return"],
+    "forbiddenSubjectEvidenceSourceIds": ["lab-ridge2", "review-ridge3-wide", "forum-ridge3"],
+    "forbiddenIndependentSourceIds": ["maker-ridge3", "retailer-ridge3", "forum-ridge3", "maker-return"],
+    "requiredCounterevidenceSourceIds": ["review-ridge3-wide", "maker-return"],
+    "requiredConflictSourceGroups": [],
+    "minimumUnknowns": 1,
+    "requiredChecklistItemIds": ["product.identity", "product.intended-use", "product.primary-facts", "product.independent-evidence", "product.fit-compatibility", "product.failure-modes", "product.counterevidence", "product.commercial-claims", "product.unknowns", "product.stop-receipt"],
+    "materialDownside": "The exact wide US 10 review reports heel movement and only moderate breathability; outdoor-worn returns are excluded.",
+    "stopCondition": "The buyer's exact size/region are unresolved and no exact-size fit measurement establishes heel hold or heat comfort.",
+    "mustBeProvisional": true
+  }
+}

@@ -10,9 +10,7 @@ import { PurchaseMandateSchema, requiresNativeRevalidation, type Money, type Off
 import { VERIFIED_MANDATE_BRAND } from "./brand.js";
 import {
   canonicalMandatePayload,
-  BRIER_MANDATE_SIGNING_DOMAIN,
-  LEGACY_MANDATE_SIGNING_DOMAIN,
-  THENAGAIN_MANDATE_SIGNING_DOMAIN,
+  purchaseOfferDigest,
 } from "./canonical.js";
 import { offerTotal } from "./issue.js";
 import type { NonceLedger } from "./nonce-ledger.js";
@@ -36,6 +34,7 @@ export type MandateRejectionCode =
   | "signature_invalid"
   | "expired"
   | "offer_mismatch"
+  | "offer_digest_mismatch"
   | "merchant_mismatch"
   | "currency_mismatch"
   | "amount_exceeded"
@@ -122,27 +121,20 @@ export async function verifyMandate(
   }
 
   const payload = canonicalMandatePayload({
+    version: m.version,
     id: m.id,
     intent: m.intent,
     offerId: m.constraints.offerId,
     merchantId: m.constraints.merchantId,
+    offerDigest: m.constraints.offerDigest,
+    quantity: m.constraints.quantity,
     maxAmountMinor: m.constraints.maxAmount.amount,
     currency: m.constraints.maxAmount.currency,
     issuedAt: m.issuedAt,
     expiresAt: m.expiresAt,
     nonce: m.nonce,
   });
-  const compatibleSignature = [BRIER_MANDATE_SIGNING_DOMAIN, THENAGAIN_MANDATE_SIGNING_DOMAIN, LEGACY_MANDATE_SIGNING_DOMAIN]
-    .some((domain) => signatureValid(
-      m.signature.publicKey,
-      canonicalMandatePayload({
-        id: m.id, intent: m.intent, offerId: m.constraints.offerId, merchantId: m.constraints.merchantId,
-        maxAmountMinor: m.constraints.maxAmount.amount, currency: m.constraints.maxAmount.currency,
-        issuedAt: m.issuedAt, expiresAt: m.expiresAt, nonce: m.nonce,
-      }, domain),
-      m.signature.value,
-    ));
-  if (!signatureValid(m.signature.publicKey, payload, m.signature.value) && !compatibleSignature) {
+  if (!signatureValid(m.signature.publicKey, payload, m.signature.value)) {
     return reject("signature_invalid", "ed25519 signature does not match the canonical mandate payload", m.id);
   }
 
@@ -174,6 +166,13 @@ export async function verifyMandate(
     return reject(
       "amount_exceeded",
       `offer total ${total.amount} ${total.currency} exceeds the signed cap ${m.constraints.maxAmount.amount} ${m.constraints.maxAmount.currency}`,
+      m.id,
+    );
+  }
+  if (purchaseOfferDigest(offer) !== m.constraints.offerDigest) {
+    return reject(
+      "offer_digest_mismatch",
+      "the current offer does not match the exact purchase identity authorized by this mandate",
       m.id,
     );
   }

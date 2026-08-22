@@ -1,4 +1,9 @@
-import { RANK_WEIGHTS, SPONSORED_DEPRIORITIZATION_DETAIL } from "./rank.js";
+import {
+  PREFERRED_CRITERION_POINTS,
+  RANK_ELIMINATION_CODES,
+  RANK_WEIGHTS,
+  SPONSORED_DEPRIORITIZATION_DETAIL,
+} from "./rank.js";
 
 /**
  * Generator for the machine-verified section of docs/RANKING.md.
@@ -38,6 +43,11 @@ export function renderRankingDoc(): string {
     const doc = WEIGHT_DOCS[key];
     return `| \`${key}\` | ${doc.direction}${RANK_WEIGHTS[key]} | ${doc.when} |`;
   });
+  const preferredRows = (
+    Object.keys(PREFERRED_CRITERION_POINTS) as Array<keyof typeof PREFERRED_CRITERION_POINTS>
+  ).map(
+    (kind) => `| \`${kind}\` | +${PREFERRED_CRITERION_POINTS[kind]} on match; 0 on miss |`,
+  );
 
   return [
     RANKING_DOC_BEGIN_MARKER,
@@ -47,6 +57,28 @@ export function renderRankingDoc(): string {
     "| Weight | Points | Applies when |",
     "| --- | --- | --- |",
     ...rows,
+    "",
+    "### Named criteria policy",
+    "",
+    "- **`required` criteria do not change scores.** A failed requirement places the",
+    "  offer in the eliminated tier and adds the criterion id, importance, and one of",
+    "  these stable codes:",
+    `  \`${RANK_ELIMINATION_CODES.REQUIRED_ATTRIBUTE_MISSING}\`,`,
+    `  \`${RANK_ELIMINATION_CODES.REQUIRED_PRICE_EXCEEDED}\`,`,
+    `  \`${RANK_ELIMINATION_CODES.REQUIRED_DELIVERY_MISSED}\`,`,
+    `  \`${RANK_ELIMINATION_CODES.REQUIRED_DELIVERY_UNKNOWN}\`,`,
+    `  \`${RANK_ELIMINATION_CODES.REQUIRED_ETHICS_MISSING}\`, or`,
+    `  \`${RANK_ELIMINATION_CODES.REQUIRED_AVAILABILITY_MISMATCH}\`.`,
+    "- **`preferred` criteria use fixed code-owned points.** Callers cannot provide",
+    "  weights, component scores, or final scores.",
+    "",
+    "| Preferred kind | Fixed points |",
+    "| --- | --- |",
+    ...preferredRows,
+    "",
+    "- **`tie_breaker` criteria add zero points.** They compare typed facts only when",
+    "  main scores are equal: lower price, earlier known delivery, an attribute or",
+    "  ethics match, then equality with the requested availability value.",
     "",
     "### Rules the score never sees",
     "",
@@ -61,11 +93,15 @@ export function renderRankingDoc(): string {
     "### Ordering",
     "",
     "Tiers, in order: non-sponsored before sponsored (primary — the brand promise),",
-    "then buyable before out-of-stock (secondary — a buyer cannot buy what isn't there;",
-    "tested property: setting `out_of_stock` can never raise a rank). Within a tier,",
-    "offers are ordered by score (desc), then price (asc), then offer id (asc) — a",
-    "total, input-order-independent order. The ranking is pure and deterministic: no",
-    "clock, no randomness, no I/O; same inputs → byte-identical output.",
+    "then candidates meeting all named requirements before eliminated candidates, then",
+    "buyable before out-of-stock (a buyer cannot buy what isn't there; tested property:",
+    "setting `out_of_stock` can never raise a rank). Main score follows. When scores are",
+    "equal, named tie breakers run in query order, then price (asc), then the canonical",
+    "JSON `[sourceStore, offerId]` tuple (asc) provides a collision-free total,",
+    "input-order-independent order. The ranking is pure and",
+    "deterministic: no clock, no randomness, no I/O; same inputs → byte-identical output.",
+    "Without named tie breakers, the legacy fallback remains score (desc), then price (asc), then the canonical store-scoped offer tuple (asc).",
+    "Within one source store, that reduces to score (desc), then price (asc), then offer id (asc).",
     "",
     RANKING_DOC_END_MARKER,
   ].join("\n");

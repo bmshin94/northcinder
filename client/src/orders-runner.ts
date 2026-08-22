@@ -20,15 +20,15 @@
  * common case: nothing due yet) exits 0, exactly like an all-healthy or
  * no-active-watches `northcinder-watch` tick.
  */
-import type { IngestOutcome, ImapPollResult, ImapTransport, OrderGraphStore, ReturnReminderReport } from "@northcinder/orders";
-import { ingestDropDir, pollImap, runReturnWindowReminders, type ReturnReminderTransport } from "@northcinder/orders";
+import type { IngestOutcome, ImapPollResult, ImapTransport, LifecycleReminderReport, OrderGraphStore, ReturnReminderReport } from "@northcinder/orders";
+import { ingestDropDir, pollImap, runReturnWindowReminders, runScheduledLifecycleReminders, type ReturnReminderTransport } from "@northcinder/orders";
 import type { Order } from "@northcinder/protocol";
 
 export interface OrdersTickSummary {
   checkedAt: string;
   dropDir: { scanned: number; outcomes: IngestOutcome[] };
   imap: ImapPollResult;
-  reminders: ReturnReminderReport[];
+  reminders: Array<ReturnReminderReport | LifecycleReminderReport>;
 }
 
 export interface OrdersTickDeps {
@@ -55,13 +55,19 @@ export async function runOrdersTick(deps: OrdersTickDeps): Promise<OrdersTickSum
     ...(deps.imapTransport !== undefined ? { transport: deps.imapTransport } : {}),
   });
 
-  const reminders = await runReturnWindowReminders({
+  const returnReminders = await runReturnWindowReminders({
     store: deps.store,
     orderFor: deps.orderFor,
     transport: deps.reminderTransport,
     reminderDays: deps.reminderDays,
     ...(deps.now !== undefined ? { now: deps.now } : {}),
   });
+  const lifecycleReminders = await runScheduledLifecycleReminders({
+    store: deps.store,
+    transport: deps.reminderTransport,
+    ...(deps.now !== undefined ? { now: deps.now } : {}),
+  });
+  const reminders = [...returnReminders, ...lifecycleReminders];
 
   return { checkedAt: now.toISOString(), dropDir, imap, reminders };
 }

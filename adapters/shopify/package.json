@@ -1,7 +1,7 @@
 {
   "name": "@northcinder/adapter-shopify",
-  "version": "0.1.0",
-  "description": "NorthCinder Shopify adapter (the spine): Global Catalog MCP (key-gated) + per-store storefront MCP (public, live)",
+  "version": "0.2.0",
+  "description": "NorthCinder Shopify UCP Catalog adapter: buyer-profiled Global and Storefront Catalog discovery",
   "license": "MIT",
   "type": "module",
   "engines": { "node": ">=20" },

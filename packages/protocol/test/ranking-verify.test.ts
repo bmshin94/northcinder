@@ -86,24 +86,24 @@ describe("verifySearchRanking — client-side recomputation of the open ranking"
       {
         kind: "order_mismatch",
         position: 1,
-        expected: { offerKey: "test-store:a", score: ranked[0]!.score },
-        actual: { offerKey: "test-store:c", score: ranked[2]!.score },
+        expected: { offerKey: '["test-store","a"]', score: ranked[0]!.score },
+        actual: { offerKey: '["test-store","c"]', score: ranked[2]!.score },
       },
       {
         kind: "order_mismatch",
         position: 2,
-        expected: { offerKey: "test-store:b", score: ranked[1]!.score },
-        actual: { offerKey: "test-store:a", score: ranked[0]!.score },
+        expected: { offerKey: '["test-store","b"]', score: ranked[1]!.score },
+        actual: { offerKey: '["test-store","a"]', score: ranked[0]!.score },
       },
       {
         kind: "order_mismatch",
         position: 3,
-        expected: { offerKey: "test-store:c", score: ranked[2]!.score },
-        actual: { offerKey: "test-store:b", score: ranked[1]!.score },
+        expected: { offerKey: '["test-store","c"]', score: ranked[2]!.score },
+        actual: { offerKey: '["test-store","b"]', score: ranked[1]!.score },
       },
     ]);
-    expect(v.expectedOrder).toEqual(["test-store:a", "test-store:b", "test-store:c"]);
-    expect(v.actualOrder).toEqual(["test-store:c", "test-store:a", "test-store:b"]);
+    expect(v.expectedOrder).toEqual(['["test-store","a"]', '["test-store","b"]', '["test-store","c"]']);
+    expect(v.actualOrder).toEqual(['["test-store","c"]', '["test-store","a"]', '["test-store","b"]']);
   });
 
   it("flags a service that keeps the order but inflates a score", () => {
@@ -116,8 +116,8 @@ describe("verifySearchRanking — client-side recomputation of the open ranking"
       {
         kind: "score_mismatch",
         position: 1,
-        expected: { offerKey: "test-store:a", score: ranked[0]!.score },
-        actual: { offerKey: "test-store:a", score: ranked[0]!.score + 50 },
+        expected: { offerKey: '["test-store","a"]', score: ranked[0]!.score },
+        actual: { offerKey: '["test-store","a"]', score: ranked[0]!.score + 50 },
       },
     ]);
   });
@@ -132,6 +132,59 @@ describe("verifySearchRanking — client-side recomputation of the open ranking"
     if (v.verified !== false) throw new Error("unreachable");
     expect(v.divergences).toEqual([
       expect.objectContaining({ kind: "reasons_mismatch", position: 1 }),
+    ]);
+  });
+
+  it("rejects service mutations to explicit-criterion order, score, or auditable reasons", () => {
+    const criterion = {
+      id: "storage",
+      label: "128GB storage",
+      importance: "preferred",
+      kind: "attribute",
+      value: "128GB",
+    } as const;
+    const matching = {
+      ...makeOffer({ id: "z-match", priceAmount: 10_000, sponsored: false }),
+      product: {
+        ...makeOffer({ id: "z-match", priceAmount: 10_000, sponsored: false }).product,
+        attributes: { storage: "128GB" },
+      },
+    };
+    const missing = makeOffer({ id: "a-miss", priceAmount: 10_000, sponsored: false });
+    const query: SearchQuery = { text: "phone", criteria: [criterion] };
+    const ranked = rankOffers([missing, matching], query, { trust: TRUST });
+    expect(ranked.map((result) => result.offer.id)).toEqual(["z-match", "a-miss"]);
+
+    const wrongOrder = [ranked[1]!, ranked[0]!];
+    expect(verifySearchRanking({ results: wrongOrder, trustSignals: TRUST }, query).verified).toBe(false);
+
+    const wrongScore = ranked.map((result, index) =>
+      index === 0 ? { ...result, score: result.score + 1 } : result,
+    );
+    expect(verifySearchRanking({ results: wrongScore, trustSignals: TRUST }, query).verified).toBe(false);
+
+    const wrongReasons = ranked.map((result, index) =>
+      index === 0
+        ? {
+            ...result,
+            reasons: result.reasons.filter((reason) => reason.criterionId !== criterion.id),
+          }
+        : result,
+    );
+    expect(verifySearchRanking({ results: wrongReasons, trustSignals: TRUST }, query).verified).toBe(false);
+  });
+
+  it("detects a swapped response whose delimiter-bearing store/id tuples share the same legacy colon label", () => {
+    const first = makeOffer({ id: "b:c", sourceStore: "a", priceAmount: 10_000, sponsored: false });
+    const second = makeOffer({ id: "c", sourceStore: "a:b", priceAmount: 10_000, sponsored: false });
+    const ranked = rankOffers([second, first], QUERY, { trust: TRUST });
+    const swapped = [ranked[1]!, ranked[0]!];
+    const verification = verifySearchRanking({ results: swapped, trustSignals: TRUST }, QUERY);
+    expect(verification.verified).toBe(false);
+    if (verification.verified !== false) throw new Error("unreachable");
+    expect(verification.divergences.map((divergence) => divergence.kind)).toEqual([
+      "order_mismatch",
+      "order_mismatch",
     ]);
   });
 

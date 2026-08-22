@@ -1,13 +1,16 @@
 /**
  * Client configuration (documented in the README "BYO agent" section):
  *
+ *   NORTHCINDER_MODE                 "local" for the launcher-owned loopback engine,
+ *                               "self-hosted" for a buyer-deployed engine (required
+ *                               except legacy URL + key configuration)
  *   NORTHCINDER_SERVICE_URL          base URL of the buyer-run NorthCinder engine (required)
- *   NORTHCINDER_CLIENT_KEY           buyer-generated Bearer key for the engine (required)
+ *   NORTHCINDER_CLIENT_KEY           buyer-generated Bearer key for self-hosted engines
  *   NORTHCINDER_CONFIG_DIR           local state dir (default $XDG_CONFIG_HOME/northcinder
  *                               or ~/.config/northcinder): mandate key, nonce ledger,
  *                               audit log, pending authorization codes
- *   NORTHCINDER_ACP_MERCHANTS        optional JSON: { "<merchant.id>": {"baseUrl": "...",
- *                               "apiKey": "..."} } — merchants reachable over the
+ *   NORTHCINDER_ACP_MERCHANTS        optional JSON: { "<merchant.id>": {"merchantDomain": "shop.example",
+ *                               "baseUrl": "https://...", "apiKey": "..."} } — merchants reachable over the
  *                               ACP checkout rail
  *   NORTHCINDER_ACP_PAYMENT_TOKEN    optional opaque DELEGATED payment token (e.g. a
  *                               Stripe Shared Payment Token). Never a card number —
@@ -35,14 +38,30 @@
  */
 import { z } from "zod";
 import { join } from "node:path";
-import { canonicalizeProductEnv, resolveConfigDir } from "@northcinder/protocol";
+import { AllowedHostSchema, canonicalizeProductEnv, isLoopbackHostname, resolveConfigDir, validateCredentialedBaseUrl } from "@northcinder/protocol";
 import type { AcpMerchantEndpoint } from "@northcinder/checkout";
 import { BRAND_NAME } from "./brand.js";
 
-const AcpMerchantsSchema = z.record(
-  z.string().min(1),
-  z.object({ baseUrl: z.url(), apiKey: z.string().min(1) }),
-);
+const AcpMerchantConfigSchema = z
+  .object({
+    baseUrl: z.string().min(1),
+    merchantDomain: AllowedHostSchema.refine((domain) => !domain.includes("*"), {
+      message: "merchantDomain must be one exact bare hostname, not a wildcard",
+    }),
+    apiKey: z.string().min(1),
+  })
+  .strict()
+  .superRefine((endpoint, context) => {
+    if (!validateCredentialedBaseUrl(endpoint.baseUrl, { allowLoopbackHttp: true }).ok) {
+      context.addIssue({
+        code: "custom",
+        path: ["baseUrl"],
+        message: "ACP base URL must use HTTPS, except explicit loopback HTTP, and contain no credentials, query, or fragment",
+      });
+    }
+  });
+
+const AcpMerchantsSchema = z.record(z.string().min(1), AcpMerchantConfigSchema);
 
 function isRawPanLike(value: string): boolean {
   return /(?:^|\D)(?:\d[ -]?){12,18}\d(?!\d)/.test(value);
@@ -57,9 +76,12 @@ export interface ClientUiConfig {
   ntfy?: { topic: string; baseUrl?: string };
 }
 
+export type ClientMode = "local" | "self-hosted";
+
 export interface ClientConfig {
+  mode: ClientMode;
   serviceUrl: string;
-  clientKey: string;
+  clientKey?: string;
   configDir: string;
   acpMerchants: Record<string, AcpMerchantEndpoint>;
   acpPaymentToken?: string;
@@ -76,6 +98,10 @@ export function canonicalizeClientEnv(env: Record<string, string | undefined>, w
   return canonicalizeProductEnv(env, warn);
 }
 
+function isLoopbackServiceUrl(serviceUrl: string): boolean {
+  return isLoopbackHostname(new URL(serviceUrl).hostname);
+}
+
 export function loadClientConfig(env: Record<string, string | undefined> = process.env): ClientConfig {
   env = canonicalizeClientEnv(env);
   const rawPaymentKey = Object.entries(env).find(
@@ -88,11 +114,32 @@ export function loadClientConfig(env: Record<string, string | undefined> = proce
     throw new Error(`${rawPaymentKey} is raw card configuration and is forbidden; configure only an opaque delegated payment token`);
   }
   const serviceUrl = env.NORTHCINDER_SERVICE_URL;
-  if (!serviceUrl || !z.url().safeParse(serviceUrl).success) {
-    throw new Error(`NORTHCINDER_SERVICE_URL is required and must be a URL (the buyer-run ${BRAND_NAME} engine endpoint)`);
+  const validatedServiceUrl = serviceUrl === undefined
+    ? { ok: false as const }
+    : validateCredentialedBaseUrl(serviceUrl, { allowLoopbackHttp: true });
+  if (!serviceUrl || !validatedServiceUrl.ok) {
+    throw new Error(
+      `NORTHCINDER_SERVICE_URL is required and must use HTTPS, except explicit loopback HTTP, with no URL credentials, query, or fragment (the buyer-run ${BRAND_NAME} engine endpoint)`,
+    );
   }
-  const clientKey = env.NORTHCINDER_CLIENT_KEY;
-  if (!clientKey || clientKey.length < 16) {
+  const clientKey = env.NORTHCINDER_CLIENT_KEY || undefined;
+  const requestedMode = env.NORTHCINDER_MODE?.trim();
+  const mode: ClientMode =
+    requestedMode === "local" || requestedMode === "self-hosted"
+      ? requestedMode
+      : requestedMode === undefined || requestedMode === ""
+        ? clientKey !== undefined && clientKey.length >= 16
+          ? "self-hosted"
+          : (() => {
+              throw new Error('NORTHCINDER_MODE is required (set "local" for the launcher-owned loopback engine or "self-hosted" with NORTHCINDER_CLIENT_KEY)');
+            })()
+        : (() => {
+            throw new Error('NORTHCINDER_MODE must be "local" or "self-hosted"');
+          })();
+  if (mode === "local" && !isLoopbackServiceUrl(serviceUrl)) {
+    throw new Error("NORTHCINDER_MODE=local requires a loopback NORTHCINDER_SERVICE_URL");
+  }
+  if (mode === "self-hosted" && (!clientKey || clientKey.length < 16)) {
     throw new Error("NORTHCINDER_CLIENT_KEY is required (a buyer-generated per-client engine key, ≥16 chars)");
   }
 
@@ -157,8 +204,9 @@ export function loadClientConfig(env: Record<string, string | undefined> = proce
     : undefined;
 
   return {
+    mode,
     serviceUrl: serviceUrl.replace(/\/$/, ""),
-    clientKey,
+    ...(clientKey !== undefined ? { clientKey } : {}),
     configDir,
     acpMerchants,
     ...(acpPaymentToken ? { acpPaymentToken } : {}),

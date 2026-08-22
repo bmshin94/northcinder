@@ -1,7 +1,7 @@
 {
   "name": "@northcinder/profile",
-  "version": "0.1.0",
-  "description": "NorthCinder user-owned preference profile: local 0600 JSON store of attributed (stated|inferred) preference entries + the deterministic profile-into-query merge behind the interpretation echo",
+  "version": "0.2.0",
+  "description": "NorthCinder buyer-local attributed preferences with current-query precedence, scopes, expiry, and confirmation-gated inference",
   "license": "MIT",
   "type": "module",
   "engines": { "node": ">=20" },

@@ -1,15 +1,16 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "{{publisherNamespace}}/northcinder-mcp",
-  "title": "NorthCinder local MCP client",
-  "description": "Local MCP client for buyer-led shopping with explicit human checkout approval.",
-  "version": "0.1.0",
+  "title": "NorthCinder client for a separately operated engine",
+  "description": "Advanced MCP client for a separately operated NorthCinder engine. It does not bundle local mode.",
+  "version": "0.2.0",
   "repository": { "url": "{{repositoryUrl}}", "source": "github" },
   "packages": [{
-    "registryType": "npm", "registryBaseUrl": "https://registry.npmjs.org", "identifier": "{{packageIdentifier}}", "version": "0.1.0",
+    "registryType": "npm", "registryBaseUrl": "https://registry.npmjs.org", "identifier": "{{packageIdentifier}}", "version": "0.2.0",
     "transport": { "type": "stdio" }, "runtimeHint": "node", "packageArguments": [{ "type": "positional", "value": "dist/main.js" }],
     "environmentVariables": [
-      { "name": "NORTHCINDER_SERVICE_URL", "description": "Base URL of the NorthCinder engine you run; local default is loopback.", "isRequired": true, "isSecret": false },
+      { "name": "NORTHCINDER_MODE", "description": "Set to self-hosted for this separately operated engine template.", "isRequired": true, "isSecret": false },
+      { "name": "NORTHCINDER_SERVICE_URL", "description": "HTTPS base URL of the NorthCinder engine you operate; explicit loopback HTTP is also allowed.", "isRequired": true, "isSecret": false },
       { "name": "NORTHCINDER_CLIENT_KEY", "description": "Buyer-generated key for your NorthCinder engine; not an AI model-provider token.", "isRequired": true, "isSecret": true },
       { "name": "NORTHCINDER_CONFIG_DIR", "description": "Buyer-local NorthCinder state directory.", "isRequired": false, "isSecret": false }
     ]

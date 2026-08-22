@@ -15,6 +15,26 @@ import { MoneySchema, SearchQuerySchema } from "./core.js";
 export const ProfileOriginSchema = z.enum(["stated", "inferred"]);
 export type ProfileOrigin = z.infer<typeof ProfileOriginSchema>;
 
+const BoundedPreferenceTextSchema = z.string().trim().min(1).max(500);
+
+export const PreferenceScopeSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("subject"), value: BoundedPreferenceTextSchema }).strict(),
+  z.object({ kind: z.literal("category"), value: BoundedPreferenceTextSchema }).strict(),
+  z.object({ kind: z.literal("project"), value: BoundedPreferenceTextSchema }).strict(),
+]);
+export type PreferenceScope = z.infer<typeof PreferenceScopeSchema>;
+
+export const PreferenceReasonSchema = z.enum([
+  "fit",
+  "style",
+  "evidence",
+  "price",
+  "delivery",
+  "wrong_recipient",
+  "duplicate_ownership",
+]);
+export type PreferenceReason = z.infer<typeof PreferenceReasonSchema>;
+
 /** Attribution fields present on every profile entry. Never defaulted. */
 const entryBase = {
   id: z.string().min(1),
@@ -22,6 +42,8 @@ const entryBase = {
   /** Which interaction created this entry (e.g. "update_profile …", "record_feedback:not_interested …"). */
   source: z.string().min(1),
   createdAt: z.iso.datetime(),
+  scope: PreferenceScopeSchema.optional(),
+  expiresAt: z.iso.datetime().optional(),
 };
 
 /** A size the user takes, per category (e.g. category "sneakers", value "EU 43"). */
@@ -102,6 +124,37 @@ export const ProfileEntryInputSchema = z.discriminatedUnion("kind", [
   NotificationEntrySchema.omit(inputOmit),
 ]);
 export type ProfileEntryInput = z.infer<typeof ProfileEntryInputSchema>;
+
+export const BrandPreferenceProposalSchema = z
+  .object({
+    id: z.string().min(1),
+    kind: z.literal("brand"),
+    brand: BoundedPreferenceTextSchema,
+    stance: z.enum(["allow", "deny"]),
+    reason: PreferenceReasonSchema,
+    scope: PreferenceScopeSchema.optional(),
+    evidenceKeys: z.array(z.string().trim().min(1).max(1_000)).min(1).max(32).refine(
+      (keys) => new Set(keys).size === keys.length,
+      "evidence keys must be unique",
+    ),
+    source: BoundedPreferenceTextSchema,
+    createdAt: z.iso.datetime(),
+    updatedAt: z.iso.datetime(),
+  })
+  .strict();
+export type BrandPreferenceProposal = z.infer<typeof BrandPreferenceProposalSchema>;
+
+export const BrandPreferenceProposalInputSchema = z
+  .object({
+    brand: BoundedPreferenceTextSchema,
+    stance: z.enum(["allow", "deny"]),
+    reason: PreferenceReasonSchema,
+    scope: PreferenceScopeSchema.optional(),
+    evidenceKey: z.string().trim().min(1).max(1_000),
+    source: BoundedPreferenceTextSchema,
+  })
+  .strict();
+export type BrandPreferenceProposalInput = z.infer<typeof BrandPreferenceProposalInputSchema>;
 
 /** A profile entry that was merged into (or overridden out of) a search's criteria — cited by exact id + origin. */
 export const AppliedProfileEntrySchema = z.object({

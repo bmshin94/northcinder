@@ -4,14 +4,26 @@ import { parseDecimalToMinorUnits } from "@northcinder/adapter-kit";
 
 export const STORE_ID = "shopify";
 
-/** Offer-id codec: "sf|<shop host>|<product gid>". The gid may contain ":" and "/". */
+/** Storefront offer-id codec. The gid may contain ":" and "/". */
 export function encodeOfferId(host: string, productGid: string): string {
   return `sf|${host}|${productGid}`;
 }
-export function decodeOfferId(id: string): { host: string; productGid: string } | null {
+/** Global clusters need the exact seller + variant on refresh. */
+export function encodeGlobalOfferId(host: string, productGid: string, sellerId: string, variantId: string): string {
+  return `gc|${host}|${productGid}|${sellerId}|${variantId}`;
+}
+export type ShopifyOfferReference =
+  | { kind: "storefront"; host: string; productGid: string }
+  | { kind: "global"; host: string; productGid: string; sellerId: string; variantId: string };
+export function decodeOfferId(id: string): ShopifyOfferReference | null {
   const parts = id.split("|");
-  if (parts.length !== 3 || parts[0] !== "sf" || !parts[1] || !parts[2]) return null;
-  return { host: parts[1], productGid: parts[2] };
+  if (parts.length === 3 && parts[0] === "sf" && parts[1] && parts[2]) {
+    return { kind: "storefront", host: parts[1], productGid: parts[2] };
+  }
+  if (parts.length === 5 && parts[0] === "gc" && parts.slice(1).every(Boolean)) {
+    return { kind: "global", host: parts[1]!, productGid: parts[2]!, sellerId: parts[3]!, variantId: parts[4]! };
+  }
+  return null;
 }
 
 /**
@@ -33,6 +45,7 @@ const UcpSearchProductSchema = z.looseObject({
         price: MoneySchema.optional(),
         availability: z.looseObject({ available: z.boolean() }).optional(),
         media: z.array(z.looseObject({ type: z.string().optional(), url: z.string() })).optional(),
+        seller: z.looseObject({ id: z.string().min(1), name: z.string().min(1), domain: z.string().min(1) }).optional(),
       }),
     )
     .optional(),
@@ -97,12 +110,52 @@ export function ucpSearchProductToOffer(raw: unknown, shopHost: string): Offer |
   return OfferSchema.safeParse(offer).success ? offer : null;
 }
 
+function globalProductToOffers(raw: unknown): Offer[] {
+  const parsed = UcpSearchProductSchema.safeParse(raw);
+  if (!parsed.success || !parsed.data.id.startsWith("gid://shopify/p/")) return [];
+  const p = parsed.data;
+  const description = p.description?.html ? stripHtml(p.description.html) : p.description?.plain;
+  const offers: Offer[] = [];
+  for (const variant of p.variants ?? []) {
+    if (!variant.id || !variant.url || !variant.price || !variant.seller) continue;
+    const imageUrl = variant.media?.find(
+      (media) => media.type === "image" && z.url().safeParse(media.url).success,
+    )?.url;
+    const offer: Offer = {
+      id: encodeGlobalOfferId(variant.seller.domain, p.id, variant.seller.id, variant.id),
+      product: {
+        id: p.id,
+        title: p.title,
+        ...(description ? { description } : {}),
+        url: variant.url,
+        ...(imageUrl ? { imageUrl } : {}),
+        attributes: { [VARIANT_GID_ATTRIBUTE]: variant.id },
+      },
+      price: variant.price,
+      merchant: { id: variant.seller.id, name: variant.seller.name, domain: variant.seller.domain, platform: "shopify" },
+      availability: variant.availability?.available === undefined ? "unknown" : variant.availability.available ? "in_stock" : "out_of_stock",
+      sourceStore: STORE_ID,
+      sponsored: false,
+    };
+    if (OfferSchema.safeParse(offer).success) offers.push(offer);
+  }
+  return offers;
+}
+
 /** Extract offers from a UCP catalog-search payload; unmappable products are skipped. */
 export function ucpSearchPayloadToOffers(payload: unknown, shopHostFallback?: string): Offer[] {
   const parsed = UcpSearchPayloadSchema.safeParse(payload);
   if (!parsed.success) return [];
   const offers: Offer[] = [];
   for (const raw of parsed.data.products) {
+    if (shopHostFallback === undefined) {
+      const productId = raw as { id?: unknown };
+      const globalOffers = globalProductToOffers(raw);
+      if (typeof productId.id === "string" && productId.id.startsWith("gid://shopify/p/")) {
+        offers.push(...globalOffers);
+        continue;
+      }
+    }
     // Global-catalog results span shops: derive merchant from the product's
     // storefront URL host (live-verified: on the variant in global results).
     let host = shopHostFallback;
@@ -121,7 +174,7 @@ export function ucpSearchPayloadToOffers(payload: unknown, shopHostFallback?: st
   return offers;
 }
 
-/** get_product_details payload (price is a DECIMAL STRING here, unlike search). */
+/** Current UCP get_product response, plus the retained historical fixture shape. */
 const UcpProductDetailsSchema = z.looseObject({
   product: z.looseObject({
     product_id: z.string().min(1),
@@ -141,7 +194,16 @@ const UcpProductDetailsSchema = z.looseObject({
   }),
 });
 
-export function ucpProductDetailsToOffer(payload: unknown, shopHost: string): Offer | null {
+export function ucpProductDetailsToOffer(payload: unknown, shopHost: string, reference?: ShopifyOfferReference): Offer | null {
+  const current = z.looseObject({ product: z.unknown() }).safeParse(payload);
+  if (current.success) {
+    if (reference?.kind === "global") {
+      return globalProductToOffers({ ...(current.data.product as object), id: reference.productGid })
+        .find((offer) => offer.id === encodeGlobalOfferId(reference.host, reference.productGid, reference.sellerId, reference.variantId)) ?? null;
+    }
+    const offer = ucpSearchProductToOffer(current.data.product, shopHost);
+    if (offer) return offer;
+  }
   const parsed = UcpProductDetailsSchema.safeParse(payload);
   if (!parsed.success) return null;
   const p = parsed.data.product;

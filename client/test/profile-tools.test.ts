@@ -139,8 +139,10 @@ describe("profile tools + interpretation echo (profile)", () => {
         unmatchedQueryWords: string[];
       };
       rankingVerified: unknown;
+      decisionReadiness: { status: string; reasons: string[] };
     };
     expect(structured.rankingVerified).toBe(true); // ranking verification preserved
+    expect(structured.decisionReadiness.status).toBe("provisional");
     const iq = structured.interpretedQuery;
     expect(iq.criteria.maxPrice).toEqual({ amount: 12000, currency: "USD" });
     expect(iq.appliedProfileEntries).toEqual(
@@ -170,34 +172,34 @@ describe("profile tools + interpretation echo (profile)", () => {
     expect(lastServiceQuery?.maxPrice).toEqual({ amount: 9000, currency: "USD" });
   });
 
-  let inferredId: string;
+  let pendingProposalId: string;
 
-  it("record_feedback(not_interested) on a seen offer creates an INFERRED brand-deny entry, origin-tagged", async () => {
+  it("record_feedback(not_interested) on a seen offer creates a pending brand-deny proposal, origin-tagged", async () => {
     const res = await client.callTool({
       name: "record_feedback",
-      arguments: { chip: "not_interested", offerId: "item-1", sourceStore: "ebay" },
+      arguments: { chip: "not_interested", offerId: "item-1", sourceStore: "ebay", reason: "fit" },
     });
     expect(res.isError ?? false).toBe(false);
-    const structured = res.structuredContent as { createdEntry?: Record<string, any> };
-    expect(structured.createdEntry).toMatchObject({
+    const structured = res.structuredContent as { pendingProposal?: Record<string, any> };
+    expect(structured.pendingProposal).toMatchObject({
       kind: "brand",
       brand: "Acme",
       stance: "deny",
-      origin: "inferred",
+      reason: "fit",
     });
-    expect(structured.createdEntry!.source).toContain("record_feedback:not_interested");
-    inferredId = structured.createdEntry!.id as string;
+    expect(structured.pendingProposal!.source).toContain("record_feedback:not_interested");
+    pendingProposalId = structured.pendingProposal!.id as string;
     const fb = auditEvents().find((e) => e.type === "profile_feedback" && e.chip === "not_interested");
     expect(fb).toBeDefined();
   });
 
-  it("get_profile marks inferred entries VISIBLY distinct from stated ones", async () => {
+  it("get_profile keeps pending proposals separate from stated entries", async () => {
     const res = await client.callTool({ name: "get_profile", arguments: {} });
     const text = (res.content as Array<{ text: string }>)[0]!.text;
-    expect(text).toContain("[INFERRED");
     expect(text).toContain("[STATED]");
-    const structured = res.structuredContent as { inferredCount: number };
-    expect(structured.inferredCount).toBe(1);
+    const structured = res.structuredContent as { inferredCount: number; proposals: Array<{ id: string }> };
+    expect(structured.inferredCount).toBe(0);
+    expect(structured.proposals).toEqual([expect.objectContaining({ id: pendingProposalId })]);
   });
 
   it("record_feedback(wrong_interpretation) creates NO entry — it is a correction signal, audited only", async () => {
@@ -217,11 +219,13 @@ describe("profile tools + interpretation echo (profile)", () => {
     expect(auditEvents().some((e) => e.type === "profile_feedback" && e.chip === "wrong_interpretation")).toBe(true);
   });
 
-  it("the inferred entry is deletable in ONE call; the delete audit line has NO brand value", async () => {
-    const res = await client.callTool({ name: "update_profile", arguments: { deleteIds: [inferredId] } });
+  it("a pending proposal can be explicitly confirmed, then the resulting stated entry is deletable in ONE call", async () => {
+    const confirmed = await client.callTool({ name: "review_preference_proposal", arguments: { proposalId: pendingProposalId, action: "confirm" } });
+    const confirmedEntry = (confirmed.structuredContent as { entry: { id: string } }).entry;
+    const res = await client.callTool({ name: "update_profile", arguments: { deleteIds: [confirmedEntry.id] } });
     expect(res.isError ?? false).toBe(false);
     expect((res.structuredContent as Record<string, unknown>).deleted).toEqual([
-      { id: inferredId, kind: "brand", origin: "inferred" },
+      { id: confirmedEntry.id, kind: "brand", origin: "stated" },
     ]);
     const del = auditEvents().find((e) => e.type === "profile_delete");
     expect(del).toBeDefined();
@@ -510,14 +514,15 @@ describe("record_feedback for an agent-observed result", () => {
         chip: "not_interested",
         offerId: observedOffer.id,
         sourceStore: "agent_browser",
+        reason: "fit",
       },
     });
     expect(feedback.isError ?? false).toBe(false);
-    expect((feedback.structuredContent as { createdEntry?: Record<string, unknown> }).createdEntry).toMatchObject({
+    expect((feedback.structuredContent as { pendingProposal?: Record<string, unknown> }).pendingProposal).toMatchObject({
       kind: "brand",
       brand: "Observed Brand",
       stance: "deny",
-      origin: "inferred",
+      reason: "fit",
     });
 
     const events = readFileSync(audit.path, "utf8")
@@ -625,5 +630,160 @@ describe("profile-less server (no profile store wired)", () => {
     const iq = (res.structuredContent as Record<string, any>).interpretedQuery;
     expect(iq.appliedProfileEntries).toEqual([]);
     expect(iq.criteria.text).toBe("wool sneakers");
+  });
+});
+
+describe("proposal-gated feedback tools", () => {
+  it("records a reasoned brand reaction as a pending proposal and confirms or dismisses only by explicit action", async () => {
+    const configDir = mkdtempSync(join(tmpdir(), "northcinder-profile-proposal-tools-"));
+    const keypair = loadOrCreateMandateKeypair({ configDir });
+    const checkout = createClientCheckout({ configDir, trustedPublicKeys: [keypair.publicKeyB64] });
+    const profile = createProfileStore({ configDir });
+    const server = createNorthCinderMcpServer({
+      service: {
+        async search(query) {
+          return {
+            ok: true,
+            data: { trustSignals: TRUST, results: rankOffers([OFFER], query, { trust: TRUST }), storeStatuses: [] },
+          };
+        },
+        async trust() {
+          throw new Error("unused");
+        },
+      } as unknown as NorthCinderServiceClient,
+      authorizations: createAuthorizationStore({ keypair, configDir, quiet: true }),
+      checkout: checkout.orchestrator,
+      audit: createAuditLog(configDir),
+      profile,
+    });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const c = new Client({ name: "test-host-agent", version: "0.0.1" });
+    await Promise.all([server.connect(serverTransport), c.connect(clientTransport)]);
+    await c.callTool({ name: "search_products", arguments: { text: "sneakers", buyerContext: { subject: "dad" } } });
+
+    const unreasoned = await c.callTool({ name: "record_feedback", arguments: { chip: "not_interested", offerId: OFFER.id, sourceStore: OFFER.sourceStore } });
+    expect(unreasoned.isError ?? false).toBe(false);
+    expect((unreasoned.structuredContent as Record<string, unknown>).pendingProposal).toBeUndefined();
+    expect(profile.list()).toEqual([]);
+    expect(profile.listProposals()).toEqual([]);
+
+    const reaction = await c.callTool({ name: "record_feedback", arguments: { chip: "not_interested", offerId: OFFER.id, sourceStore: OFFER.sourceStore, reason: "fit" } });
+    expect(reaction.isError ?? false).toBe(false);
+    const pending = (reaction.structuredContent as { pendingProposal: { id: string; scope?: unknown }; createdEntry?: unknown }).pendingProposal;
+    expect(pending).toMatchObject({ scope: { kind: "subject", value: "dad" } });
+    expect((reaction.structuredContent as { createdEntry?: unknown }).createdEntry).toBeUndefined();
+    expect(profile.list()).toEqual([]);
+
+    const confirmed = await c.callTool({ name: "review_preference_proposal", arguments: { proposalId: pending!.id, action: "confirm" } });
+    expect(confirmed.isError ?? false).toBe(false);
+    expect((confirmed.structuredContent as { entry: { origin: string; kind: string } }).entry).toMatchObject({ origin: "stated", kind: "brand" });
+
+    const second = await c.callTool({ name: "record_feedback", arguments: { chip: "more_like_this", offerId: OFFER.id, sourceStore: OFFER.sourceStore, reason: "style" } });
+    const dismissedPending = (second.structuredContent as { pendingProposal: { id: string } }).pendingProposal;
+    const dismissed = await c.callTool({ name: "review_preference_proposal", arguments: { proposalId: dismissedPending!.id, action: "dismiss" } });
+    expect(dismissed.isError ?? false).toBe(false);
+    expect(profile.listProposals()).toEqual([]);
+
+    const listed = await c.callTool({ name: "get_profile", arguments: {} });
+    expect((listed.structuredContent as { proposals: unknown[] }).proposals).toEqual([]);
+  });
+
+  it("keeps duplicate feedback evidence pending, then promotes only a second distinct matching MCP offer", async () => {
+    // Regression: treating a repeated click on one offer as independent evidence
+    // would silently create an inferred preference without a second offer.
+    const configDir = mkdtempSync(join(tmpdir(), "northcinder-profile-repeat-evidence-"));
+    const keypair = loadOrCreateMandateKeypair({ configDir });
+    const checkout = createClientCheckout({ configDir, trustedPublicKeys: [keypair.publicKeyB64] });
+    const profile = createProfileStore({ configDir });
+    const audit = createAuditLog(configDir);
+    const secondOffer: Offer = {
+      ...OFFER,
+      id: "item-2",
+      product: { ...OFFER.product, id: "item-2", title: "Wool Blend Sneaker II" },
+    };
+    const server = createNorthCinderMcpServer({
+      service: {
+        async search(query) {
+          return {
+            ok: true,
+            data: { trustSignals: TRUST, results: rankOffers([OFFER, secondOffer], query, { trust: TRUST }), storeStatuses: [] },
+          };
+        },
+        async trust() {
+          throw new Error("unused");
+        },
+      } as unknown as NorthCinderServiceClient,
+      authorizations: createAuthorizationStore({ keypair, configDir, quiet: true }),
+      checkout: checkout.orchestrator,
+      audit,
+      profile,
+    });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const c = new Client({ name: "test-host-agent", version: "0.0.1" });
+    await Promise.all([server.connect(serverTransport), c.connect(clientTransport)]);
+    await c.callTool({ name: "search_products", arguments: { text: "sneakers", buyerContext: { subject: "dad" } } });
+
+    const first = await c.callTool({
+      name: "record_feedback",
+      arguments: { chip: "not_interested", offerId: OFFER.id, sourceStore: OFFER.sourceStore, reason: "fit" },
+    });
+    const proposal = (first.structuredContent as { pendingProposal: { id: string; evidenceKeys: string[]; scope: unknown } }).pendingProposal;
+    expect(proposal).toMatchObject({ scope: { kind: "subject", value: "dad" }, evidenceKeys: ['["ebay","item-1"]'] });
+    expect(profile.list()).toEqual([]);
+
+    const duplicate = await c.callTool({
+      name: "record_feedback",
+      arguments: { chip: "not_interested", offerId: OFFER.id, sourceStore: OFFER.sourceStore, reason: "fit" },
+    });
+    expect(duplicate.isError ?? false).toBe(false);
+    expect((duplicate.structuredContent as { pendingProposal: { id: string; evidenceKeys: string[] }; createdEntry?: unknown }).pendingProposal).toEqual(
+      expect.objectContaining({ id: proposal.id, evidenceKeys: ['["ebay","item-1"]'] }),
+    );
+    expect((duplicate.structuredContent as { createdEntry?: unknown }).createdEntry).toBeUndefined();
+    expect(profile.list()).toEqual([]);
+    expect(profile.listProposals()).toEqual([expect.objectContaining({ id: proposal.id, evidenceKeys: ['["ebay","item-1"]'] })]);
+
+    const promoted = await c.callTool({
+      name: "record_feedback",
+      arguments: { chip: "not_interested", offerId: secondOffer.id, sourceStore: secondOffer.sourceStore, reason: "fit" },
+    });
+    expect(promoted.isError ?? false).toBe(false);
+    expect((promoted.structuredContent as { pendingProposal?: unknown }).pendingProposal).toBeUndefined();
+    expect((promoted.structuredContent as { createdEntry: Record<string, unknown> }).createdEntry).toMatchObject({
+      origin: "inferred",
+      kind: "brand",
+      brand: "Acme",
+      stance: "deny",
+      scope: { kind: "subject", value: "dad" },
+    });
+    expect(profile.list()).toEqual([expect.objectContaining({ origin: "inferred", kind: "brand", brand: "Acme", stance: "deny" })]);
+    expect(profile.listProposals()).toEqual([]);
+    const feedbackAudits = readFileSync(audit.path, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+      .filter((event) => event.type === "profile_feedback");
+    expect(feedbackAudits).toHaveLength(3);
+    expect(feedbackAudits[0]).toMatchObject({
+      chip: "not_interested",
+      offerKey: "ebay:item-1",
+      reason: "fit",
+      proposalId: proposal.id,
+      createdEntry: null,
+    });
+    expect(feedbackAudits[1]).toMatchObject({
+      chip: "not_interested",
+      offerKey: "ebay:item-1",
+      reason: "fit",
+      proposalId: proposal.id,
+      createdEntry: null,
+    });
+    expect(feedbackAudits[2]).toMatchObject({
+      chip: "not_interested",
+      offerKey: "ebay:item-2",
+      reason: "fit",
+      createdEntry: expect.objectContaining({ id: expect.any(String), kind: "brand", origin: "inferred" }),
+    });
+    expect(feedbackAudits[2]!.proposalId).toBeUndefined();
   });
 });

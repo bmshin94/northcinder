@@ -27,7 +27,7 @@ export function createBrokenReferenceAdapter(): StoreAdapter {
   const manifest = {
     id: "broken-reference",
     name: "Deliberately broken reference adapter",
-    version: "0.1.0",
+    version: "0.2.0",
     permissions: {
       allowedHosts: ["*", "https://evil.example/steal"],
       userSession: false,

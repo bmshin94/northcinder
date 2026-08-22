@@ -1,90 +1,110 @@
 /**
  * `northcinder init` — non-interactive-testable core of the setup wizard.
  *
- * The wizard produces three artifacts from a small set of answers without a live network call:
- *   1. an on-disk init-record (`<configDir>/northcinder-init.json`, 0600 — it can
- *      hold a client key) the user can re-read later;
- *   2. a vendor-neutral `mcpServers` JSON snippet; and
- *   3. in local mode, the engine launch command — "you run NorthCinder
- *      yourself" is only actionable if the wizard says HOW.
+ * The wizard produces two artifacts from a small set of answers without a live network call:
+ *   1. an on-disk init-record (`<configDir>/northcinder-init.json`, 0600) the
+ *      user can re-read later; and
+ *   2. a vendor-neutral `mcpServers` JSON snippet.
  *
  * All the interactive prompting lives in init-main.ts; everything here is a
  * pure function of its inputs so the non-interactive/CI path is unit-testable without a TTY.
  */
-import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { AllowedHostSchema, resolveConfigDir, validateCredentialedBaseUrl } from "@northcinder/protocol";
 import { BRAND_NAME, BRAND_SLUG } from "./brand.js";
 
 export interface InitAnswers {
   /** "self-hosted" = point at a NorthCinder engine the buyer separately deploys.
-   *  "local" = the buyer will run `node service/dist/main.js` locally;
-   *  the wizard fills in the loopback URL and can optionally configure
-   *  legacy Shopify shop hosts on that side. */
+   *  "local" = the packed launcher owns an ephemeral loopback engine and can
+   *  optionally configure Shopify UCP profile and storefront hosts on that side. */
   mode: "self-hosted" | "local";
   serviceUrl?: string;
   clientKey?: string;
   shops: string[];
+  shopifyProfileUrl?: string;
   ntfyTopic?: string;
   configDir: string;
   /** Absolute path to client/dist/main.js — defaults to argv-relative in the CLI. */
   serverEntry: string;
-  /** Optional packed launcher service entry. Source checkouts retain their sibling service path. */
-  serviceEntry?: string;
 }
 
-export interface InitConfigRecord {
+interface InitConfigRecordBase {
   brand: string;
-  mode: "self-hosted" | "local";
-  serviceUrl: string;
-  clientKey: string;
   shops: string[];
+  shopifyProfileUrl?: string;
   ntfyTopic?: string;
   configDir: string;
   createdAt: string;
 }
 
+export interface LocalInitConfigRecord extends InitConfigRecordBase {
+  mode: "local";
+}
+
+export interface SelfHostedInitConfigRecord extends InitConfigRecordBase {
+  mode: "self-hosted";
+  serviceUrl: string;
+  clientKey: string;
+}
+
+export type InitConfigRecord = LocalInitConfigRecord | SelfHostedInitConfigRecord;
+
 export interface InitResult {
   record: InitConfigRecord;
   configPath: string;
   mcpHostSnippet: string;
-  /** Local mode only: the ready-to-paste service launch command. */
-  serviceCommand?: string;
 }
-
-const LOCAL_SERVICE_URL = "http://127.0.0.1:8790";
 
 export class InitAnswersError extends Error {}
-
-/** Quote one argv or environment-assignment value for a POSIX shell.
- *
- * Init output is intentionally copy/pasteable, so treat every answer as
- * hostile shell text. Single quotes suppress substitutions; embedded single
- * quotes use the portable close-quote/double-quoted-quote/reopen sequence.
- */
-export function quotePosixShell(value: string): string {
-  return `'${value.replaceAll("'", "'\"'\"'")}'`;
-}
 
 /** Validate + normalize answers; throws InitAnswersError with an actionable message. */
 export function resolveInitAnswers(answers: InitAnswers): InitConfigRecord {
   if (answers.mode !== "local" && answers.mode !== "self-hosted") {
     throw new InitAnswersError("mode must be 'local' or 'self-hosted' (--mode)");
   }
-  const serviceUrl = answers.mode === "local" ? LOCAL_SERVICE_URL : answers.serviceUrl;
+  let validatedShopifyProfileUrl: string | undefined;
+  if (answers.shopifyProfileUrl !== undefined) {
+    let profile: URL;
+    try {
+      profile = new URL(answers.shopifyProfileUrl);
+    } catch {
+      throw new InitAnswersError("shopifyProfileUrl must be an HTTPS URL without credentials (--shopify-profile-url)");
+    }
+    if (profile.protocol !== "https:" || profile.username || profile.password) {
+      throw new InitAnswersError("shopifyProfileUrl must be an HTTPS URL without credentials (--shopify-profile-url)");
+    }
+    validatedShopifyProfileUrl = answers.shopifyProfileUrl;
+  }
+  if (answers.mode === "local" && answers.shops.length > 0 && validatedShopifyProfileUrl === undefined) {
+    throw new InitAnswersError("--shop requires --shopify-profile-url (an HTTPS UCP agent profile URL)");
+  }
+  for (const shop of answers.shops) {
+    if (!AllowedHostSchema.safeParse(shop).success || shop.includes("*")) {
+      throw new InitAnswersError("--shop must be a bare Shopify hostname (no scheme, path, port, or wildcard)");
+    }
+  }
+  const common = {
+    brand: BRAND_NAME,
+    shops: answers.shops,
+    ...(validatedShopifyProfileUrl !== undefined ? { shopifyProfileUrl: validatedShopifyProfileUrl } : {}),
+    ...(answers.ntfyTopic ? { ntfyTopic: answers.ntfyTopic } : {}),
+    configDir: answers.configDir,
+    createdAt: new Date().toISOString(),
+  };
+  if (answers.mode === "local") {
+    return { ...common, mode: "local" };
+  }
+
+  const serviceUrl = answers.serviceUrl;
   if (!serviceUrl) {
     throw new InitAnswersError("serviceUrl is required in self-hosted mode (--service-url)");
   }
-  let parsedServiceUrl: URL;
-  try {
-    parsedServiceUrl = new URL(serviceUrl);
-  } catch {
-    throw new InitAnswersError("serviceUrl is not a valid URL");
-  }
-  if (!["http:", "https:"].includes(parsedServiceUrl.protocol)) {
-    throw new InitAnswersError("serviceUrl must use HTTP or HTTPS");
-  }
-  if (parsedServiceUrl.username || parsedServiceUrl.password) {
-    throw new InitAnswersError("serviceUrl must not contain credentials; use --client-key for your NorthCinder engine key");
+  const parsedServiceUrl = validateCredentialedBaseUrl(serviceUrl, { allowLoopbackHttp: true });
+  if (!parsedServiceUrl.ok) {
+    throw new InitAnswersError(
+      "serviceUrl must use HTTPS, except explicit loopback HTTP, and must not contain credentials, query, or fragment; use --client-key for your NorthCinder engine key",
+    );
   }
   const clientKey = answers.clientKey;
   if (!clientKey || clientKey.length < 16) {
@@ -94,23 +114,25 @@ export function resolveInitAnswers(answers: InitAnswers): InitConfigRecord {
     );
   }
   return {
-    brand: BRAND_NAME,
-    mode: answers.mode,
+    ...common,
+    mode: "self-hosted",
     serviceUrl,
     clientKey,
-    shops: answers.shops,
-    ...(answers.ntfyTopic ? { ntfyTopic: answers.ntfyTopic } : {}),
-    configDir: answers.configDir,
-    createdAt: new Date().toISOString(),
   };
 }
 
 export function buildMcpHostSnippet(answers: InitAnswers, record: InitConfigRecord): string {
   const env: Record<string, string> = {
-    NORTHCINDER_SERVICE_URL: record.serviceUrl,
-    NORTHCINDER_CLIENT_KEY: record.clientKey,
+    NORTHCINDER_MODE: record.mode,
+    ...(record.mode === "self-hosted"
+      ? {
+          NORTHCINDER_SERVICE_URL: record.serviceUrl,
+          NORTHCINDER_CLIENT_KEY: record.clientKey,
+        }
+      : {}),
     NORTHCINDER_CONFIG_DIR: record.configDir,
     ...(record.ntfyTopic ? { NORTHCINDER_UI_NTFY_TOPIC: record.ntfyTopic } : {}),
+    ...(process.env.XDG_CONFIG_HOME !== undefined ? { XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME } : {}),
   };
   const snippet = {
     mcpServers: {
@@ -125,20 +147,54 @@ export function buildMcpHostSnippet(answers: InitAnswers, record: InitConfigReco
 }
 
 /**
- * Local mode only: the launch command for the engine the buyer just chose to
- * run locally. The engine entry is derived from the client's serverEntry
- * (client/dist/main.js → ../../service/dist/main.js in the same checkout).
- * Self-hosted mode returns undefined because the buyer runs that deployment separately.
+ * Materialize persisted local-only adapter configuration for an engine owned
+ * by the packed launcher. An explicit vendor environment value takes
+ * precedence; the MCP host environment remains limited to NorthCinder values.
  */
-export function buildServiceCommand(answers: InitAnswers, record: InitConfigRecord): string | undefined {
-  if (answers.mode !== "local") return undefined;
-  return [
-    `NORTHCINDER_API_KEYS=${quotePosixShell(`me:${record.clientKey}`)}`,
-    ...(record.shops.length > 0
-      ? [`SHOPIFY_MCP_SHOPS=${quotePosixShell(record.shops.join(","))}`]
-      : []),
-    `node ${quotePosixShell(answers.serviceEntry ?? resolve(dirname(answers.serverEntry), "..", "..", "service", "dist", "main.js"))}${answers.serviceEntry ? " service" : ""}`,
-  ].join(" \\\n  ");
+export function materializeOwnedLocalEngineEnv(
+  env: Record<string, string | undefined>,
+): Record<string, string | undefined> {
+  const materialized = { ...env };
+  if (env.SHOPIFY_MCP_SHOPS !== undefined && env.SHOPIFY_UCP_AGENT_PROFILE_URL !== undefined) return materialized;
+
+  const configDir = resolveConfigDir(env);
+  let raw: string;
+  try {
+    raw = readFileSync(join(configDir, "northcinder-init.json"), "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return materialized;
+    throw new InitAnswersError("local init record is invalid; run northcinder init again");
+  }
+
+  let record: unknown;
+  try {
+    record = JSON.parse(raw);
+  } catch {
+    throw new InitAnswersError("local init record is invalid; run northcinder init again");
+  }
+  if (typeof record !== "object" || record === null) {
+    throw new InitAnswersError("local init record is invalid; run northcinder init again");
+  }
+  const candidate = record as Record<string, unknown>;
+  if (candidate.mode === "self-hosted") return materialized;
+  if (
+    candidate.brand !== BRAND_NAME ||
+    candidate.mode !== "local" ||
+    candidate.configDir !== configDir ||
+    typeof candidate.createdAt !== "string" ||
+    !Array.isArray(candidate.shops) ||
+    !candidate.shops.every((shop) => typeof shop === "string")
+  ) {
+    throw new InitAnswersError("local init record is invalid; run northcinder init again");
+  }
+  if (candidate.shops.length > 0) {
+    if (env.SHOPIFY_MCP_SHOPS === undefined) materialized.SHOPIFY_MCP_SHOPS = candidate.shops.join(",");
+  }
+  if (candidate.shopifyProfileUrl !== undefined) {
+    if (typeof candidate.shopifyProfileUrl !== "string") throw new InitAnswersError("local init record is invalid; run northcinder init again");
+    if (env.SHOPIFY_UCP_AGENT_PROFILE_URL === undefined) materialized.SHOPIFY_UCP_AGENT_PROFILE_URL = candidate.shopifyProfileUrl;
+  }
+  return materialized;
 }
 
 /** Writes the init record to `<configDir>/northcinder-init.json` (0600) and returns the full result. */
@@ -147,14 +203,12 @@ export function runInit(answers: InitAnswers): InitResult {
   mkdirSync(record.configDir, { recursive: true, mode: 0o700 });
   const configPath = join(record.configDir, "northcinder-init.json");
   writeFileSync(configPath, JSON.stringify(record, null, 2) + "\n", { mode: 0o600 });
-  // writeFileSync's mode does not change an existing file; the record carries
-  // a client key, so enforce its mode after both creation and overwrite.
+  // writeFileSync's mode does not change an existing file; enforce owner-only
+  // permissions after both creation and overwrite.
   chmodSync(configPath, 0o600);
-  const serviceCommand = buildServiceCommand(answers, record);
   return {
     record,
     configPath,
     mcpHostSnippet: buildMcpHostSnippet(answers, record),
-    ...(serviceCommand !== undefined ? { serviceCommand } : {}),
   };
 }

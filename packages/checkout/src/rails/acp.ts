@@ -18,14 +18,14 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { fetchWithBudget } from "@northcinder/adapter-kit";
-import { requiresNativeRevalidation, type Money, type Offer } from "@northcinder/protocol";
+import { AllowedHostSchema, requiresNativeRevalidation, validateCredentialedBaseUrl, type Money, type Offer } from "@northcinder/protocol";
 import { offerTotal } from "../mandate/issue.js";
 import { checkoutError, railExecutionRejection, type CheckoutRail, type RailContext, type RailResult } from "./rail.js";
 
 export const ACP_API_VERSION = "2026-04-17";
 export const ACP_RAIL_ID = "acp";
-/** Honest agent self-identification (same posture as the Amazon adapter's UA). */
-export const ACP_USER_AGENT = "NorthCinderAgent/0.1 (automated shopping agent; buyer-loyal)";
+/** Honest agent self-identification for the allocated 0.2.0 release (same posture as the Amazon adapter's UA). */
+export const ACP_USER_AGENT = "NorthCinderAgent/0.2 (automated shopping agent; buyer-loyal)";
 
 /**
  * Delegated payment credential — the ONLY payment shape that exists in this
@@ -55,12 +55,29 @@ export type AcpPaymentTokenProvider = (input: {
   maxAmount: Money;
 }) => Promise<AcpPaymentCredential>;
 
-export interface AcpMerchantEndpoint {
-  /** Base URL of the merchant's ACP implementation (no trailing slash). */
-  baseUrl: string;
-  /** Bearer API key for that merchant. */
-  apiKey: string;
-}
+export const AcpMerchantEndpointSchema = z
+  .object({
+    /** Base URL of the merchant's ACP implementation (no trailing slash). */
+    baseUrl: z.string().min(1),
+    /** Storefront domain this endpoint is authorized to serve. */
+    merchantDomain: AllowedHostSchema.refine((domain) => !domain.includes("*"), {
+      message: "merchantDomain must be one exact bare hostname, not a wildcard",
+    }),
+    /** Bearer API key for that merchant. */
+    apiKey: z.string().min(1),
+  })
+  .strict()
+  .superRefine((endpoint, context) => {
+    const validated = validateCredentialedBaseUrl(endpoint.baseUrl, { allowLoopbackHttp: true });
+    if (!validated.ok) {
+      context.addIssue({
+        code: "custom",
+        path: ["baseUrl"],
+        message: "ACP base URL must use HTTPS, except explicit loopback HTTP, and contain no credentials, query, or fragment",
+      });
+    }
+  });
+export type AcpMerchantEndpoint = z.infer<typeof AcpMerchantEndpointSchema>;
 
 export interface AcpRailConfig {
   /** Offer.merchant.id → ACP endpoint. Only mapped merchants are handled. */
@@ -79,8 +96,8 @@ export interface AcpRailConfig {
 /** The subset of the ACP CheckoutSession this client consumes (extras ignored). */
 const AcpSessionSchema = z.looseObject({
   id: z.string().min(1),
-  status: z.string().min(1),
-  currency: z.string().min(1),
+  status: z.string().regex(/^[a-zA-Z0-9_.:-]{1,64}$/),
+  currency: z.string().regex(/^[a-zA-Z]{3}$/),
   totals: z.array(z.looseObject({ type: z.string(), amount: z.int() })).default([]),
   capabilities: z
     .looseObject({
@@ -98,13 +115,19 @@ const AcpSessionSchema = z.looseObject({
 });
 
 const AcpErrorSchema = z.looseObject({
-  type: z.string(),
-  code: z.string(),
-  message: z.string(),
+  code: z.string().regex(/^[a-zA-Z0-9_.:-]{1,64}$/),
 });
 
 export function createAcpRail(config: AcpRailConfig): CheckoutRail {
   const fetchImpl = config.fetchImpl;
+
+  function endpointFor(offer: Offer): AcpMerchantEndpoint | undefined {
+    const parsed = AcpMerchantEndpointSchema.safeParse(config.merchants[offer.merchant.id]);
+    if (!parsed.success) return undefined;
+    return parsed.data.merchantDomain.toLowerCase() === offer.merchant.domain.toLowerCase()
+      ? parsed.data
+      : undefined;
+  }
 
   async function post(
     endpoint: AcpMerchantEndpoint,
@@ -132,27 +155,27 @@ export function createAcpRail(config: AcpRailConfig): CheckoutRail {
     );
   }
 
-  function merchantErrorDetail(bodyText: string): string {
+  function merchantErrorDetails(status: number, bodyText: string): Record<string, unknown> {
     try {
       const parsed = AcpErrorSchema.safeParse(JSON.parse(bodyText));
-      if (parsed.success) return `${parsed.data.code}: ${parsed.data.message}`;
+      if (parsed.success) return { httpStatus: status, merchantCode: parsed.data.code };
     } catch {
       // fall through
     }
-    return bodyText.slice(0, 200);
+    return { httpStatus: status };
   }
 
   return {
     id: ACP_RAIL_ID,
 
     canHandle(offer) {
-      return !requiresNativeRevalidation(offer) && config.merchants[offer.merchant.id] !== undefined;
+      return !requiresNativeRevalidation(offer) && endpointFor(offer) !== undefined;
     },
 
     async execute(offer, verified, ctx): Promise<RailResult> {
       const rejection = railExecutionRejection(offer, verified, ACP_RAIL_ID);
       if (rejection !== null) return { ok: false, error: rejection };
-      const endpoint = config.merchants[offer.merchant.id];
+      const endpoint = endpointFor(offer);
       if (!endpoint) {
         return {
           ok: false,
@@ -193,7 +216,8 @@ export function createAcpRail(config: AcpRailConfig): CheckoutRail {
       if (createResult.status >= 400) {
         return fail(
           "merchant_rejected",
-          `ACP merchant rejected checkout session creation (HTTP ${createResult.status}): ${merchantErrorDetail(createResult.bodyText)}`,
+          "ACP merchant rejected checkout session creation",
+          merchantErrorDetails(createResult.status, createResult.bodyText),
         );
       }
       let session: z.infer<typeof AcpSessionSchema>;
@@ -204,8 +228,8 @@ export function createAcpRail(config: AcpRailConfig): CheckoutRail {
       }
       if (session.status !== "ready_for_payment") {
         await cancelBestEffort(session.id);
-        return fail("merchant_rejected", `checkout session is not ready for payment (status: ${session.status})`, {
-          messages: session.messages,
+        return fail("merchant_rejected", "ACP checkout session is not ready for payment", {
+          sessionStatus: session.status,
         });
       }
 
@@ -266,11 +290,11 @@ export function createAcpRail(config: AcpRailConfig): CheckoutRail {
           throw new Error("provider returned a non-opaque payment credential");
         }
         credential = parsedCredential.data;
-      } catch (cause) {
+      } catch {
         await cancelBestEffort(session.id);
         return fail(
           "payment_token_unavailable",
-          `delegated payment token provider failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+          "delegated payment token provider did not return a usable opaque credential",
         );
       }
 
@@ -300,8 +324,11 @@ export function createAcpRail(config: AcpRailConfig): CheckoutRail {
       if (completeResult.status >= 400) {
         return fail(
           "merchant_rejected",
-          `ACP merchant rejected completion (HTTP ${completeResult.status}): ${merchantErrorDetail(completeResult.bodyText)}`,
-          { checkoutSessionId: session.id },
+          "ACP merchant rejected checkout completion",
+          {
+            checkoutSessionId: session.id,
+            ...merchantErrorDetails(completeResult.status, completeResult.bodyText),
+          },
         );
       }
       let completed: z.infer<typeof AcpSessionSchema>;
@@ -315,8 +342,8 @@ export function createAcpRail(config: AcpRailConfig): CheckoutRail {
       if (completed.status !== "completed" || completed.order === undefined) {
         return fail(
           "merchant_rejected",
-          `completion did not produce an order (status: ${completed.status})`,
-          { checkoutSessionId: session.id, messages: completed.messages },
+          "ACP checkout completion did not produce an order",
+          { checkoutSessionId: session.id, sessionStatus: completed.status },
         );
       }
 

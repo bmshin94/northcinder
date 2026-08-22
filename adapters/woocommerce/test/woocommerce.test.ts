@@ -147,6 +147,11 @@ describe("woocommerce adapter — per-host fan-out and degrade", () => {
     if (!result.ok) throw new Error(`expected partial success, got ${result.error.code}: ${result.error.message}`);
     expect(result.offers.length).toBeGreaterThan(0);
     expect(result.offers.every((o) => o.merchant.domain === HOST_A)).toBe(true);
+    expect(result.sourceStatuses).toEqual(expect.arrayContaining([
+      { source: HOST_A, ok: true, offerCount: expect.any(Number) },
+      { source: HOST_B, ok: false, error: expect.objectContaining({ code: "unavailable" }) },
+    ]));
+    expect(result.sourceStatuses?.find((status) => !status.ok && status.source === HOST_B)?.error).not.toHaveProperty("details");
   });
 
   it("all configured hosts down -> honest unavailable error, never a fake empty success", async () => {
@@ -167,6 +172,49 @@ describe("woocommerce adapter — per-host fan-out and degrade", () => {
 });
 
 describe("woocommerce adapter — configuration honesty", () => {
+  it("preserves a provider 429 Retry-After as a typed rate_limited error", async () => {
+    const adapter = createWoocommerceAdapter({
+      env: { WOOCOMMERCE_STORE_HOSTS: "shop.example" },
+      fetchImpl: async () => new Response("{}", { status: 429, headers: { "Retry-After": "2" } }),
+    });
+    const result = await adapter.search({ text: "anything" }, { timeoutMs: 100 });
+    expect(result).toMatchObject({ ok: false, error: { code: "rate_limited", retryAfterMs: 2_000 } });
+  });
+
+  it("uses the maximum Retry-After when every configured host is rate limited", async () => {
+    const delays: Record<string, string> = { "shop-one.example": "1", "shop-two.example": "3" };
+    const adapter = createWoocommerceAdapter({
+      stores: Object.keys(delays),
+      fetchImpl: async (input) => new Response("{}", {
+        status: 429,
+        headers: { "Retry-After": delays[new URL(input instanceof Request ? input.url : String(input)).hostname]! },
+      }),
+      env: {},
+    });
+    const result = await adapter.search({ text: "anything" }, { timeoutMs: 100 });
+    expect(result).toMatchObject({ ok: false, error: { code: "rate_limited", retryAfterMs: 3_000 } });
+  });
+
+  it("keeps the largest typed Retry-After when a rate-limited and timed-out store all fail", async () => {
+    const adapter = createWoocommerceAdapter({
+      stores: ["limited-shop.example", "slow-shop.example"],
+      fetchImpl: ((input: string | URL | Request, init?: RequestInit) => {
+        const host = new URL(input instanceof Request ? input.url : String(input)).hostname;
+        if (host === "limited-shop.example") {
+          return Promise.resolve(new Response("{}", { status: 429, headers: { "Retry-After": "3" } }));
+        }
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
+        });
+      }) as typeof fetch,
+      env: {},
+    });
+
+    const result = await adapter.search({ text: "anything" }, { timeoutMs: 100 });
+
+    expect(result).toMatchObject({ ok: false, error: { code: "unavailable", retryAfterMs: 3_000 } });
+  });
+
   it("no stores configured -> structured not_configured naming WOOCOMMERCE_STORE_HOSTS, never fake success", async () => {
     const adapter = createWoocommerceAdapter({ env: {} });
     const search = await adapter.search({ text: "anything" }, { timeoutMs: 500 });
@@ -183,6 +231,20 @@ describe("woocommerce adapter — configuration honesty", () => {
   it("reads WOOCOMMERCE_STORE_HOSTS from env when no explicit stores are passed", () => {
     const adapter = createWoocommerceAdapter({ env: { WOOCOMMERCE_STORE_HOSTS: "a.example.com, b.example.com" } });
     expect(adapter.manifest.permissions.allowedHosts).toEqual(["a.example.com", "b.example.com"]);
+  });
+
+  it("refreshes a legacy mixed-case offer id but rejects an unconfigured host without provider I/O", async () => {
+    const calls: Recorded[] = [];
+    const adapter = fixtureAdapter(calls);
+    const legacyId = "wc|Woodmart.XtEmOs.COM|23443";
+
+    const refreshed = await adapter.getOffer(legacyId, { timeoutMs: 1_000 });
+    expect(refreshed).toMatchObject({ ok: true, offer: { id: legacyId } });
+
+    const beforeOutOfScope = calls.length;
+    const rejected = await adapter.getOffer("wc|Unconfigured.Example|1", { timeoutMs: 1_000 });
+    expect(rejected).toMatchObject({ ok: false, error: { code: "permission_denied" } });
+    expect(calls).toHaveLength(beforeOutOfScope);
   });
 
   it("manifest scopes exactly the configured hosts, no user session, no checkout, no sponsored concept", () => {

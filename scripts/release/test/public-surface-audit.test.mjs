@@ -1,11 +1,9 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import test from "node:test";
 import {
   commitMetadataFindings,
   forbiddenPathFindings,
   internalProcessFindings,
-  internalToolFindings,
   publicCopyFindings,
   sensitiveTextFindings,
   standaloneBoundaryFindings,
@@ -15,6 +13,13 @@ test("rejects every documentation and release-script path not explicitly reviewe
   const unreviewedPaths = ["docs/unreviewed/result.md", "scripts/release/private-check.mjs"];
   assert.deepEqual(forbiddenPathFindings(["README.md", ...unreviewedPaths]), [
     ...unreviewedPaths.map((path) => `${path}: internal-only or unreviewed public path is tracked`),
+  ]);
+});
+
+test("allows the reviewed research-eval grader while rejecting another unknown client script", () => {
+  assert.deepEqual(forbiddenPathFindings(["client/scripts/grade-research-skill-evals.mjs"]), []);
+  assert.deepEqual(forbiddenPathFindings(["client/scripts/unreviewed-eval-helper.mjs"]), [
+    "client/scripts/unreviewed-eval-helper.mjs: internal-only or unreviewed public path is tracked",
   ]);
 });
 
@@ -44,6 +49,17 @@ test("rejects an obsolete public-coordinate disclaimer", () => {
   assert.equal(publicCopyFindings("README.md", body).length, 1);
 });
 
+test("uses path-specific semantic checks for the public install and checkout contracts", () => {
+  assert.deepEqual(publicCopyFindings("site/src/pages/install.astro", "The initializer creates the local client key."), [
+    "site/src/pages/install.astro: obsolete local-install credential copy",
+  ]);
+  assert.deepEqual(publicCopyFindings("site/src/pages/install.astro", "The buyer runs a self-hosted engine with a buyer-generated key."), []);
+  assert.deepEqual(publicCopyFindings("site/src/pages/checkout-safety.astro", "The exact number of units is authorized."), [
+    "site/src/pages/checkout-safety.astro: unsupported variable-quantity copy",
+  ]);
+  assert.deepEqual(publicCopyFindings("README.md", "A self-hosted engine uses a buyer-generated key."), []);
+});
+
 test("rejects copy or metadata that implies a NorthCinder-operated service", () => {
   for (const body of [
     "A hosted NorthCinder operator issues your key.",
@@ -68,20 +84,43 @@ test("allows buyer-run local and explicitly self-hosted deployment copy", () => 
   );
 });
 
-test("ordinary public prose has no private-vocabulary finding", () => {
-  assert.deepEqual(internalToolFindings("source.ts", "buyer-loyal deterministic shopping"), []);
+test("rejects generic internal process prose while allowing test-only labels", () => {
+  for (const body of [
+    "Slice 4 adds evidence.",
+    "Batch 6 verification",
+    "The weak-agent tier passed an internal sample.",
+    "This review wave closes the finding.",
+    "The invariant #4 architectural test enforces the determinism law.",
+  ]) {
+    assert.equal(internalProcessFindings("README.md", body).length, 1, body);
+  }
+  assert.deepEqual(internalProcessFindings("packages/checkout/test/example.ts", "Slice 4 internal sample"), []);
+  assert.deepEqual(internalProcessFindings("README.md", "release checks and product tests"), []);
 });
 
-test("ordinary public prose has no private-process finding", () => {
-  assert.deepEqual(internalProcessFindings("source.ts", "release checks and product tests"), []);
+test("rejects release-handoff prose in package copy and slice labels in shipped source", () => {
+  assert.equal(
+    internalProcessFindings("northcinder/README.md", "In this handoff NorthCinder does not operate your browser.").length,
+    1,
+  );
+  assert.equal(
+    internalProcessFindings("packages/brief/src/compose.ts", "/** Optional Slice 4 evidence. */").length,
+    1,
+  );
 });
 
-test("rejects token and local-operator-path material without storing a token fixture in source", () => {
+test("rejects token and generic local-operator-path material without a path dictionary", () => {
   const token = "gh" + "p_" + "a".repeat(36);
-  const localRoot = "/mnt/c/Users/synthetic-operator";
-  const localRootHash = createHash("sha256").update(localRoot.toLowerCase()).digest("hex");
+  const localRoot = "/home/private-operator";
   const body = `${token}\n${localRoot}/private.txt`;
-  assert.equal(sensitiveTextFindings("fixture.txt", body, new Set([localRootHash])).length, 2);
+  assert.equal(sensitiveTextFindings("fixture.txt", body).length, 2);
+});
+
+test("allows only exact synthetic operator roots in their dedicated negative tests", () => {
+  assert.deepEqual(sensitiveTextFindings("client/test/local-ui.test.ts", "/home/alice/.config/northcinder/private.json"), []);
+  assert.deepEqual(sensitiveTextFindings("packages/checkout/test/keystore.test.ts", "/home/u/.config/northcinder"), []);
+  assert.deepEqual(sensitiveTextFindings("scripts/release/test/public-surface-audit.test.mjs", "/mnt/c/Users/synthetic-operator/private.txt"), []);
+  assert.equal(sensitiveTextFindings("README.md", "/home/alice/.config/northcinder/private.json").length, 1);
 });
 
 test("allows empty examples and named test tokens but rejects an opaque assigned secret", () => {

@@ -16,6 +16,55 @@ import { forEachLineFromEnd } from "./bounded-tail-reader.js";
 import { runFsOp } from "./fs-error-sanitizer.js";
 
 export const ORDERS_FILENAME = "orders.jsonl";
+export const LEGACY_CHECKOUT_SOURCE = "legacy_checkout";
+
+type PersistedOrderRecord = Partial<OrderRecord> & {
+  mandate?: {
+    intent?: unknown;
+    constraints?: { maxAmount?: unknown };
+  };
+};
+
+/**
+ * Pre-change checkout lines did not carry sourceStore or productTitle. Keep
+ * their bytes append-only, but adapt the read view so display consumers get a
+ * complete record. The synthetic source never claims exact decision
+ * attribution for history that did not persist it.
+ */
+function normalizePersistedOrder(value: unknown): OrderRecord | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const record = value as PersistedOrderRecord;
+  const requiredStrings = [
+    record.orderId,
+    record.createdAt,
+    record.offerId,
+    record.merchantId,
+    record.merchantDomain,
+    record.railId,
+    record.mandateId,
+  ];
+  if (requiredStrings.some((field) => typeof field !== "string" || field.length === 0)) return undefined;
+  if (record.status !== "completed" && record.status !== "handed_off") return undefined;
+  if (typeof record.mandate !== "object" || record.mandate === null) return undefined;
+  if (record.evidence === undefined) return undefined;
+
+  const hasStoredIdentity =
+    typeof record.sourceStore === "string" &&
+    record.sourceStore.length > 0 &&
+    typeof record.productTitle === "string" &&
+    record.productTitle.length > 0;
+  if (hasStoredIdentity) return record as OrderRecord;
+
+  const intent =
+    typeof record.mandate.intent === "string" && record.mandate.intent.trim().length > 0
+      ? record.mandate.intent
+      : record.offerId!;
+  return {
+    ...(record as OrderRecord),
+    sourceStore: LEGACY_CHECKOUT_SOURCE,
+    productTitle: intent,
+  };
+}
 
 export interface OrderStore {
   readonly path: string;
@@ -56,7 +105,8 @@ export function createOrderStore(configDir: string): OrderStore {
         (line) => {
           if (line.trim().length === 0) return; // blank lines: skipped, never counted/invented
           try {
-            orders.push(JSON.parse(line) as OrderRecord);
+            const normalized = normalizePersistedOrder(JSON.parse(line));
+            if (normalized !== undefined) orders.push(normalized);
           } catch {
             // A corrupt line is skipped for display; the bytes stay on disk untouched.
           }

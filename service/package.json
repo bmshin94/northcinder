@@ -1,6 +1,6 @@
 {
   "name": "@northcinder/service",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Buyer-run NorthCinder aggregation engine: store orchestration, deterministic ranking API, and merchant trust",
   "private": true,
   "type": "module",

@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { OrderRecord } from "@northcinder/checkout";
+import { createOrderGraphStore } from "@northcinder/orders";
+import { OrderSchema } from "@northcinder/protocol";
 import { createOrderStore, ORDERS_FILENAME } from "../src/order-store.js";
 
 function order(n: number): OrderRecord {
@@ -10,7 +12,10 @@ function order(n: number): OrderRecord {
     orderId: `order_${n}`,
     createdAt: `2026-07-0${n}T00:00:00.000Z`,
     offerId: `offer-${n}`,
+    sourceStore: "test",
+    productTitle: `Product ${n}`,
     merchantId: "mock-merchant.example",
+    merchantDomain: "mock-merchant.example",
     railId: "acp",
     status: "completed",
     mandateId: `mandate_${n}`,
@@ -52,6 +57,31 @@ describe("order store — persisted checkout records (local UI orders tab)", () 
     expect(listed).toHaveLength(1);
     expect(listed[0]!.orderId).toBe("order_1");
     expect(readFileSync(store.path, "utf8")).toContain("garbage-line"); // bytes untouched
+  });
+
+  it("normalizes a literal pre-change checkout line without rewriting it and emits public OrderSchema records", () => {
+    const dir = mkdtempSync(join(tmpdir(), "northcinder-orders-legacy-"));
+    const path = join(dir, ORDERS_FILENAME);
+    const legacyLine = '{"orderId":"order_legacy_1","createdAt":"2026-06-15T12:00:00.000Z","offerId":"offer-legacy-1","merchantId":"shop.example","merchantDomain":"shop.example","railId":"cart-permalink","status":"handed_off","mandateId":"mandate-legacy-1","mandate":{"id":"mandate-legacy-1","intent":"Buy the Fairphone 5 128GB","constraints":{"offerId":"offer-legacy-1","merchantId":"shop.example","maxAmount":{"amount":59900,"currency":"EUR"}},"issuedAt":"2026-06-15T11:59:00.000Z","expiresAt":"2026-06-15T12:30:00.000Z","nonce":"0123456789abcdef","signature":{"algorithm":"ed25519","publicKey":"cHVibGlj","value":"c2ln"}},"evidence":{"rail":"cart-permalink","cartUrl":"https://shop.example/cart/1:1","variantId":"1","quantity":1}}\n';
+    writeFileSync(path, legacyLine);
+
+    const checkoutOrders = createOrderStore(dir).list();
+    expect(checkoutOrders).toHaveLength(1);
+    expect(checkoutOrders[0]).toMatchObject({
+      sourceStore: "legacy_checkout",
+      productTitle: "Buy the Fairphone 5 128GB",
+    });
+    expect(readFileSync(path, "utf8")).toBe(legacyLine);
+
+    const graph = createOrderGraphStore(dir);
+    const listed = graph.listOrders(checkoutOrders);
+    expect(listed).toHaveLength(1);
+    expect(OrderSchema.safeParse(listed[0]).success).toBe(true);
+
+    const detail = graph.getOrder("order_legacy_1", checkoutOrders);
+    expect(detail).toBeDefined();
+    expect(OrderSchema.safeParse(detail?.order).success).toBe(true);
+    expect(detail?.order.items[0]?.title).toBe("Buy the Fairphone 5 128GB");
   });
 
   it("is a BOUNDED (chunked) tail reader: newest N are returned correctly across a backward chunk boundary — never a whole-file readFileSync+split", () => {

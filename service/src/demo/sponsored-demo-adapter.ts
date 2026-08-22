@@ -63,7 +63,7 @@ export function createDemoSponsoredAdapter(config: DemoSponsoredAdapterConfig = 
   const manifest: AdapterManifest = {
     id: DEMO_SPONSORED_STORE_ID,
     name: "Demo sponsored-placement adapter (synthetic)",
-    version: "0.1.0",
+    version: "0.2.0",
     description:
       "demo-only synthetic adapter: injects one clearly-labeled sponsored offer to demonstrate the ranking's sponsored de-prioritization; no network, gated behind NORTHCINDER_DEMO_SPONSORED_ADAPTER=1",
     permissions: { allowedHosts: [], userSession: false },

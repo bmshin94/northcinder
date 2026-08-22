@@ -21,7 +21,7 @@ import {
 
 export type ServiceCallResult<T> =
   | { ok: true; data: T }
-  | { ok: false; error: { code: string; message: string } };
+  | { ok: false; error: { code: string; message: string; retryAfterMs?: number } };
 
 export interface NorthCinderServiceClient {
   search(query: SearchQuery): Promise<ServiceCallResult<SearchRankResponse>>;
@@ -55,7 +55,7 @@ export function createServiceClient(options: ServiceClientOptions): NorthCinderS
         },
         body: JSON.stringify(body),
       },
-      { timeoutMs, ...(options.fetchImpl !== undefined ? { fetchImpl: options.fetchImpl } : {}) },
+      { timeoutMs, retries: 0, ...(options.fetchImpl !== undefined ? { fetchImpl: options.fetchImpl } : {}) },
     );
     if (!result.ok) {
       return {
@@ -75,6 +75,7 @@ export function createServiceClient(options: ServiceClientOptions): NorthCinderS
         error: {
           code: "service_error",
           message: `configured NorthCinder engine error (HTTP ${result.status})`,
+          ...(result.retryAfterMs !== undefined ? { retryAfterMs: result.retryAfterMs } : {}),
         },
       };
     }

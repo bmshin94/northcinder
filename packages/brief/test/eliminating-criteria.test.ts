@@ -42,4 +42,17 @@ describe("eliminatingCriteria — keys off rank.ts's structured reason code, not
       eliminatingCriteria(ranked([{ criterion: "availability", detail: "custom wording", code: RANK_ELIMINATION_CODES.OUT_OF_STOCK }])),
     ).toEqual(["out of stock"]);
   });
+
+  it.each([
+    [RANK_ELIMINATION_CODES.REQUIRED_ATTRIBUTE_MISSING, "required attribute missing: custom wording"],
+    [RANK_ELIMINATION_CODES.REQUIRED_PRICE_EXCEEDED, "required price exceeded: custom wording"],
+    [RANK_ELIMINATION_CODES.REQUIRED_DELIVERY_MISSED, "required delivery missed: custom wording"],
+    [RANK_ELIMINATION_CODES.REQUIRED_DELIVERY_UNKNOWN, "required delivery unknown: custom wording"],
+    [RANK_ELIMINATION_CODES.REQUIRED_ETHICS_MISSING, "required ethics missing: custom wording"],
+    [RANK_ELIMINATION_CODES.REQUIRED_AVAILABILITY_MISMATCH, "required availability mismatch: custom wording"],
+  ])("detects the named required elimination code %s", (code, expected) => {
+    expect(eliminatingCriteria(ranked([{ criterion: "spec_match", detail: "custom wording", code }]))).toEqual([
+      expected,
+    ]);
+  });
 });

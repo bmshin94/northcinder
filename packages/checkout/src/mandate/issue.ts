@@ -5,7 +5,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import type { Money, Offer, PurchaseMandate } from "@northcinder/protocol";
 import { PurchaseMandateSchema } from "@northcinder/protocol";
-import { canonicalMandatePayload } from "./canonical.js";
+import { canonicalMandatePayload, PURCHASE_QUANTITY, purchaseOfferDigest } from "./canonical.js";
 import type { MandateKeypair } from "./keystore.js";
 
 export const DEFAULT_MANDATE_TTL_MS = 15 * 60_000;
@@ -67,13 +67,17 @@ export function issueMandate(options: IssueMandateOptions): PurchaseMandate {
   const issuedAt = now.toISOString();
   const expiresAt = new Date(now.getTime() + (options.ttlMs ?? DEFAULT_MANDATE_TTL_MS)).toISOString();
   const nonce = options.nonce ?? randomBytes(18).toString("base64url"); // 24 chars, >=16 required by schema
+  const offerDigest = purchaseOfferDigest(options.offer);
 
   const signature = options.keypair.sign(
     canonicalMandatePayload({
+      version: 2,
       id,
       intent: options.intent,
       offerId: options.offer.id,
       merchantId: options.offer.merchant.id,
+      offerDigest,
+      quantity: PURCHASE_QUANTITY,
       maxAmountMinor: maxAmount.amount,
       currency: maxAmount.currency,
       issuedAt,
@@ -83,11 +87,14 @@ export function issueMandate(options: IssueMandateOptions): PurchaseMandate {
   );
 
   return PurchaseMandateSchema.parse({
+    version: 2,
     id,
     intent: options.intent,
     constraints: {
       offerId: options.offer.id,
       merchantId: options.offer.merchant.id,
+      offerDigest,
+      quantity: PURCHASE_QUANTITY,
       maxAmount,
     },
     issuedAt,

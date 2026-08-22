@@ -25,6 +25,8 @@ export const StoreErrorSchema = z.object({
   store: z.string().min(1),
   /** Whether the caller may sensibly retry (with backoff). */
   retryable: z.boolean(),
+  /** Provider-supplied earliest retry delay in whole milliseconds. */
+  retryAfterMs: z.number().int().nonnegative().finite().optional(),
   /** Optional structured context (never secrets, never raw credentials). */
   details: z.record(z.string(), z.unknown()).optional(),
 });
@@ -43,7 +45,7 @@ export function storeError(
   store: string,
   code: StoreErrorCode,
   message: string,
-  opts?: { retryable?: boolean; details?: Record<string, unknown> },
+  opts?: { retryable?: boolean; details?: Record<string, unknown>; retryAfterMs?: number },
 ): StoreError {
   const retryable = opts?.retryable ?? (code === "timeout" || code === "rate_limited" || code === "unavailable");
   return {
@@ -51,6 +53,7 @@ export function storeError(
     message,
     store,
     retryable,
+    ...(opts?.retryAfterMs !== undefined ? { retryAfterMs: opts.retryAfterMs } : {}),
     ...(opts?.details !== undefined ? { details: opts.details } : {}),
   };
 }

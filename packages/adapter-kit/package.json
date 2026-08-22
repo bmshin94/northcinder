@@ -1,6 +1,6 @@
 {
   "name": "@northcinder/adapter-kit",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "NorthCinder adapter toolkit: budgeted HTTP (timeout + bounded jittered retry + body cap), concurrency limiter, float-free money parsing",
   "license": "MIT",
   "type": "module",

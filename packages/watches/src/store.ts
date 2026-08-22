@@ -53,6 +53,10 @@ export interface WatchUpdatePatch {
   lastCheckedAt?: string;
   lastPrice?: Money;
   lastStatus?: WatchLastStatus;
+  lastSuccessAt?: string;
+  lastFailureAt?: string;
+  /** null clears elapsed backoff after a healthy check. */
+  nextEligibleCheckAt?: string | null;
   notifiedBuckets?: string[];
 }
 
@@ -154,6 +158,10 @@ export function createWatchStore(options: WatchStoreOptions): WatchStore {
       if (patch.lastCheckedAt !== undefined) watch.lastCheckedAt = patch.lastCheckedAt;
       if (patch.lastPrice !== undefined) watch.lastPrice = patch.lastPrice;
       if (patch.lastStatus !== undefined) watch.lastStatus = patch.lastStatus;
+      if (patch.lastSuccessAt !== undefined) watch.lastSuccessAt = patch.lastSuccessAt;
+      if (patch.lastFailureAt !== undefined) watch.lastFailureAt = patch.lastFailureAt;
+      if (patch.nextEligibleCheckAt === null) delete watch.nextEligibleCheckAt;
+      else if (patch.nextEligibleCheckAt !== undefined) watch.nextEligibleCheckAt = patch.nextEligibleCheckAt;
       if (patch.notifiedBuckets !== undefined) watch.notifiedBuckets = patch.notifiedBuckets;
       persist(watches);
       return watch;

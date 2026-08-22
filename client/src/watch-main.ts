@@ -82,7 +82,11 @@ async function main(): Promise<void> {
       : createServiceOfferSource(
           (() => {
             const config = loadClientConfig(env);
-            return createServiceClient({ serviceUrl: config.serviceUrl, clientKey: config.clientKey, timeoutMs: config.searchTimeoutMs });
+            return createServiceClient({
+              serviceUrl: config.serviceUrl,
+              ...(config.clientKey !== undefined ? { clientKey: config.clientKey } : {}),
+              timeoutMs: config.searchTimeoutMs,
+            });
           })(),
         );
 

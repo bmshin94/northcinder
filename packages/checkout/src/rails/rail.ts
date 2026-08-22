@@ -5,6 +5,7 @@
  * invariant-#4 gate. Rails never throw; they resolve discriminated results.
  */
 import { requiresNativeRevalidation, type Money, type Offer } from "@northcinder/protocol";
+import { purchaseOfferDigest } from "../mandate/canonical.js";
 import { hasUnrepresentableShippingCurrency, offerTotal } from "../mandate/issue.js";
 import { isVerifiedMandate, type VerifiedMandate } from "../mandate/verify.js";
 
@@ -20,6 +21,7 @@ export type CheckoutErrorCode =
   | "unverified_mandate"
   | "offer_mismatch"
   | "merchant_mismatch"
+  | "offer_digest_mismatch"
   | "currency_mismatch"
   | "offer_total_mismatch"
   | "not_configured"
@@ -156,6 +158,13 @@ export function railExecutionRejection(
           currency: currentTotal.currency,
         },
       },
+    );
+  }
+  if (purchaseOfferDigest(offer) !== constraints.offerDigest) {
+    return checkoutError(
+      "offer_digest_mismatch",
+      "the current offer does not match the exact purchase identity authorized by the verified mandate",
+      { rail: railId },
     );
   }
   return null;

@@ -1,7 +1,7 @@
 {
   "name": "@northcinder/checkout",
-  "version": "0.1.0",
-  "description": "NorthCinder checkout & purchase authorization: AP2-shaped signed mandate hard gate (spec invariant #4) + checkout rails (ACP client rail, own-session Shopify cart-permalink rail)",
+  "version": "0.2.0",
+  "description": "NorthCinder exact-purchase authorization with versioned signed mandates, cross-process single-use nonces, ACP checkout, and buyer-session cart handoff",
   "license": "MIT",
   "type": "module",
   "engines": { "node": ">=20" },

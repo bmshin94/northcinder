@@ -111,23 +111,68 @@ describe("ntfy notifier (against a local fake ntfy — no real network)", () => 
 });
 
 describe("webhook notifier (against a local fake server)", () => {
+  it("rejects unsafe webhook destinations before fetch", async () => {
+    const urls = [
+      "http://hooks.example/notify",
+      "https://user:password@hooks.example/notify",
+      "https://hooks.example/notify#secret",
+      "https://localhost/notify",
+      "https://127.0.0.1/notify",
+      "https://[::1]/notify",
+    ];
+    for (const url of urls) {
+      let fetchCalls = 0;
+      const result = await createWebhookNotifier({
+        url,
+        fetchImpl: (async () => {
+          fetchCalls += 1;
+          return new Response(null, { status: 204 });
+        }) as typeof fetch,
+      }).send(NOTIFICATION);
+      expect.soft(result, url).toMatchObject({ ok: false, error: { code: "webhook_url_unsafe" } });
+      expect.soft(fetchCalls, url).toBe(0);
+    }
+  });
+
+  it("uses manual redirect handling and refuses redirects", async () => {
+    let redirectMode: RequestRedirect | undefined;
+    const result = await createWebhookNotifier({
+      url: "https://hooks.example/notify",
+      fetchImpl: (async (_input, init) => {
+        redirectMode = init?.redirect;
+        return new Response(null, { status: 302, headers: { location: "http://127.0.0.1/private" } });
+      }) as typeof fetch,
+    }).send(NOTIFICATION);
+
+    expect(redirectMode).toBe("manual");
+    expect(result).toMatchObject({ ok: false, error: { code: "webhook_redirect_forbidden" } });
+  });
+
   it("POSTs the full structured notification as JSON", async () => {
-    const { server, port, requests } = await fakeServer(200);
-    servers.push(server);
-    const notifier = createWebhookNotifier({ url: `http://127.0.0.1:${port}/hook` });
+    const requests: Array<{ input: string; init?: RequestInit }> = [];
+    const notifier = createWebhookNotifier({
+      url: "https://hooks.example/hook",
+      fetchImpl: (async (input, init) => {
+        requests.push({ input: String(input), init });
+        return new Response(null, { status: 204 });
+      }) as typeof fetch,
+    });
     const result = await notifier.send(NOTIFICATION);
     expect(result).toEqual({ ok: true });
-    expect(requests[0]!.headers["content-type"]).toBe("application/json");
-    const payload = JSON.parse(requests[0]!.body) as { title: string; body: string; notification: WatchNotification };
+    expect(requests[0]!.input).toBe("https://hooks.example/hook");
+    expect(requests[0]!.init?.headers).toEqual({ "content-type": "application/json" });
+    const payload = JSON.parse(String(requests[0]!.init?.body)) as { title: string; body: string; notification: WatchNotification };
     expect(payload.notification.watchId).toBe("watch_abc");
     expect(payload.notification.currentPrice).toEqual({ amount: 54900, currency: "EUR" });
     expect(payload.title).toContain("Fairphone below 550");
   });
 
   it("webhook HTTP failure returns a structured error", async () => {
-    const { server, port } = await fakeServer(503);
-    servers.push(server);
-    const notifier = createWebhookNotifier({ url: `http://127.0.0.1:${port}/hook`, timeoutMs: 2000 });
+    const notifier = createWebhookNotifier({
+      url: "https://hooks.example/hook",
+      timeoutMs: 2000,
+      fetchImpl: (async () => new Response(null, { status: 503 })) as typeof fetch,
+    });
     const result = await notifier.send(NOTIFICATION);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe("webhook_http_error");

@@ -34,10 +34,13 @@ describe("mandate keystore", () => {
   it("produces signatures that verify against the stored public key", () => {
     const kp = loadOrCreateMandateKeypair({ configDir: tmp() });
     const payload = canonicalMandatePayload({
+      version: 2,
       id: "m1",
       intent: "buy",
       offerId: "o1",
       merchantId: "shop.example",
+      offerDigest: "a".repeat(64),
+      quantity: 1,
       maxAmountMinor: 100,
       currency: "USD",
       issuedAt: "2026-07-04T00:00:00.000Z",

@@ -1,7 +1,7 @@
 {
   "name": "@northcinder/brief",
-  "version": "0.1.0",
-  "description": "NorthCinder buyer's brief: a deterministic decision artifact composed by CODE from ranked results — ≤5 finalists with whyThis derived from ranking reasons, computed tradeoffs, per-cell provenance, rejected appendix, and honest per-store coverage (silent skipping forbidden). Includes the deterministic markdown renderer (universal fallback).",
+  "version": "0.2.0",
+  "description": "NorthCinder buyer brief with at most three role-based default candidates, expandable finalists, provenance, rejections, unknowns, and store coverage",
   "license": "MIT",
   "type": "module",
   "engines": { "node": ">=20" },

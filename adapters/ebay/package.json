@@ -1,7 +1,7 @@
 {
   "name": "@northcinder/adapter-ebay",
-  "version": "0.1.0",
-  "description": "NorthCinder eBay adapter: Buy Browse API (sandbox env-gated; production requires eBay Partner Network approval)",
+  "version": "0.2.0",
+  "description": "NorthCinder eBay Browse API adapter for buyer-configured approved Buy API access, with no affiliate ranking input or checkout",
   "license": "MIT",
   "type": "module",
   "engines": { "node": ">=20" },

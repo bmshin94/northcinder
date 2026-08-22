@@ -1,4 +1,5 @@
 export * from "./schemas/core.js";
+export * from "./schemas/decision.js";
 export * from "./schemas/errors.js";
 export * from "./schemas/api.js";
 export * from "./schemas/profile.js";
@@ -6,6 +7,8 @@ export * from "./schemas/brief.js";
 export * from "./schemas/watch.js";
 export * from "./schemas/order.js";
 export * from "./config-dir.js";
+export * from "./file-lock.js";
+export * from "./credential-url.js";
 export * from "./trust/key.js";
 export * from "./trust/derive.js";
 export * from "./trust/doc.js";

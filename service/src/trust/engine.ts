@@ -48,6 +48,9 @@ function domainMatches(domain: string, seedDomain: string): boolean {
   const s = seedDomain.toLowerCase();
   return d === s || d.endsWith(`.${s}`);
 }
+function probeKey(domain: string): string {
+  return domain.toLowerCase().replace(/\.+$/, "");
+}
 function findEntry(entries: TrustSeedEntry[], domain: string): TrustSeedEntry | undefined {
   return entries.find((e) => domainMatches(domain, e.domain));
 }
@@ -131,7 +134,8 @@ export function createSignalTrustProvider(options: SignalTrustProviderOptions): 
 
   return {
     async trustSignal(merchant: Merchant): Promise<TrustSignal> {
-      const key = trustKey(merchant);
+      const key = probeKey(merchant.domain);
+      const legacyKey = trustKey(merchant);
       const seedEval = evaluateSeed(seed, merchant.domain);
 
       // Curation short-circuit: deny/allow are authoritative and instant.
@@ -139,7 +143,7 @@ export function createSignalTrustProvider(options: SignalTrustProviderOptions): 
         return toSignal(merchant, seedEval.inputs, seedEval.evidence);
       }
 
-      const record = store.get(key);
+      const record = store.get(key) ?? store.get(legacyKey);
       // Merge curation + measured signals, omitting undefined so
       // exactOptionalPropertyTypes stays happy and absence means absence.
       const merge = (probe: CorpusInputs): TrustDerivationInputs => {
@@ -156,7 +160,7 @@ export function createSignalTrustProvider(options: SignalTrustProviderOptions): 
       }
 
       // Cold or stale: race a deduped background refresh against the budget.
-      const refresh = scheduleRefresh(key, merchant);
+      const refresh = scheduleRefresh(key, { ...merchant, domain: key });
       const timedOut = Symbol("timeout");
       let timer: ReturnType<typeof setTimeout> | undefined;
       const budget = new Promise<typeof timedOut>((resolve) => {

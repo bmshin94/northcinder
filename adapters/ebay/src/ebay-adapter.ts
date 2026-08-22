@@ -135,7 +135,7 @@ export function createEbayAdapter(config: EbayAdapterConfig = {}): StoreAdapter 
   const manifest: AdapterManifest = {
     id: EBAY_STORE_ID,
     name: "eBay Buy Browse API",
-    version: "0.1.0",
+    version: "0.2.0",
     description:
       "eBay buyer-side Browse API adapter. Sandbox works with any dev keypair; production requires eBay Partner Network approval.",
     // Scoped to the host of the CONFIGURED instance only — a sandbox-mode
@@ -172,6 +172,9 @@ export function createEbayAdapter(config: EbayAdapterConfig = {}): StoreAdapter 
       { timeoutMs: ctx.timeoutMs, ...(ctx.signal ? { signal: ctx.signal } : {}), ...(fetchImpl ? { fetchImpl } : {}) },
     );
     if (!result.ok) return { ok: false, error: httpFailureToStoreError(result, "eBay OAuth token request") };
+    if (result.status === 429) {
+      return { ok: false, error: storeError(EBAY_STORE_ID, "rate_limited", "eBay OAuth token request rate limited", { ...(result.retryAfterMs !== undefined ? { retryAfterMs: result.retryAfterMs } : {}) }) };
+    }
     if (result.status !== 200) {
       return {
         ok: false,
@@ -206,6 +209,9 @@ export function createEbayAdapter(config: EbayAdapterConfig = {}): StoreAdapter 
       { timeoutMs: ctx.timeoutMs, ...(ctx.signal ? { signal: ctx.signal } : {}), ...(fetchImpl ? { fetchImpl } : {}) },
     );
     if (!result.ok) return { ok: false, error: httpFailureToStoreError(result, `eBay Browse ${path}`) };
+    if (result.status === 429) {
+      return { ok: false, error: storeError(EBAY_STORE_ID, "rate_limited", `eBay Browse ${path} rate limited`, { ...(result.retryAfterMs !== undefined ? { retryAfterMs: result.retryAfterMs } : {}) }) };
+    }
     let body: unknown;
     try {
       body = JSON.parse(result.bodyText);

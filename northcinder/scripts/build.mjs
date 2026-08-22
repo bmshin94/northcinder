@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,3 +19,12 @@ if (result.status !== 0) process.exit(result.status ?? 1);
 // lines. Keep the checked-in launcher reproducible and `git diff --check`
 // clean without changing the generated JavaScript's behavior.
 writeFileSync(outfile, readFileSync(outfile, "utf8").replace(/[ \t]+$/gm, ""));
+
+for (const id of ["product-research", "seller-research"]) {
+  const destinationDir = resolve(packageDir, "research-skills", id);
+  mkdirSync(destinationDir, { recursive: true });
+  copyFileSync(
+    resolve(packageDir, "../client/research-skills", id, "SKILL.md"),
+    resolve(destinationDir, "SKILL.md"),
+  );
+}

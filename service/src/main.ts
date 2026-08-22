@@ -1,9 +1,11 @@
 import { serve } from "@hono/node-server";
-import { buildAdaptersFromEnv } from "./adapters-from-env.js";
-import { createApp, type ApiClientKey } from "./http/app.js";
-import { createOrchestrator } from "./orchestrator/orchestrator.js";
-import { buildTrustProviderFromEnv } from "./trust/from-env.js";
 import { canonicalizeProductEnv } from "@northcinder/protocol";
+import { pathToFileURL } from "node:url";
+import { buildAdaptersFromEnv } from "./adapters-from-env.js";
+import { createApp } from "./http/app.js";
+import { createOrchestrator } from "./orchestrator/orchestrator.js";
+import { parseRequiredApiKeys } from "./runtime.js";
+import { buildTrustProviderFromEnv } from "./trust/from-env.js";
 
 /**
  * Service entrypoint. Env:
@@ -20,35 +22,27 @@ import { canonicalizeProductEnv } from "@northcinder/protocol";
  * All four real store adapters are always registered; unconfigured stores
  * degrade to structured `not_configured` statuses per search.
  */
-function parseApiKeys(env: string | undefined): ApiClientKey[] {
-  if (env === undefined || env.trim() === "") {
-    throw new Error(
-      "NORTHCINDER_API_KEYS is required (format: clientId:key[,clientId:key…]) — refusing to boot an open service",
-    );
-  }
-  return env.split(",").map((pair) => {
-    const sep = pair.indexOf(":");
-    const clientId = sep === -1 ? "" : pair.slice(0, sep).trim();
-    const key = sep === -1 ? "" : pair.slice(sep + 1).trim();
-    if (clientId === "" || key.length < 16) {
-      throw new Error(`NORTHCINDER_API_KEYS entry malformed (need clientId:key with key ≥16 chars)`);
-    }
-    return { clientId, key };
+function main(): void {
+  const env = canonicalizeProductEnv(process.env);
+  const keys = parseRequiredApiKeys(env["NORTHCINDER_API_KEYS"]);
+  const port = Number(env["PORT"] ?? 8790);
+  const hostname = env["NORTHCINDER_HOST"] ?? "127.0.0.1";
+  const adapters = buildAdaptersFromEnv(env);
+  const app = createApp({
+    orchestrator: createOrchestrator(adapters),
+    // Verifiable-signals trust engine by default (RDAP age, Tranco rank, curated
+    // deny sources, best-effort CT); NORTHCINDER_TRUST_ENGINE=0 → seed-only fallback.
+    trust: buildTrustProviderFromEnv(env),
+    auth: { kind: "api-keys", keys },
+  });
+
+  serve({ fetch: app.fetch, hostname, port }, (info) => {
+    const boundHost = info.address.includes(":") ? `[${info.address}]` : info.address;
+    console.log(`[northcinder-service] listening on http://${boundHost}:${info.port}`);
+    console.log(`[northcinder-service] registered stores: ${adapters.map((a) => a.manifest.id).join(", ")}`);
   });
 }
 
-const env = canonicalizeProductEnv(process.env);
-const port = Number(env["PORT"] ?? 8790);
-const adapters = buildAdaptersFromEnv(env);
-const app = createApp({
-  orchestrator: createOrchestrator(adapters),
-  // Verifiable-signals trust engine by default (RDAP age, Tranco rank, curated
-  // deny sources, best-effort CT); NORTHCINDER_TRUST_ENGINE=0 → seed-only fallback.
-  trust: buildTrustProviderFromEnv(env),
-  apiKeys: parseApiKeys(env["NORTHCINDER_API_KEYS"]),
-});
-
-serve({ fetch: app.fetch, port }, (info) => {
-  console.log(`[northcinder-service] listening on http://127.0.0.1:${info.port}`);
-  console.log(`[northcinder-service] registered stores: ${adapters.map((a) => a.manifest.id).join(", ")}`);
-});
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main();
+}

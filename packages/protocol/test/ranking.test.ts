@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { Offer, SearchQuery, TrustSignal } from "../src/index.js";
 import { RankedResultSchema } from "../src/index.js";
-import { rankOffers, SPONSORED_DEPRIORITIZATION_DETAIL } from "../src/ranking/rank.js";
+import {
+  rankOffers,
+  SPONSORED_DEPRIORITIZATION_DETAIL,
+} from "../src/ranking/rank.js";
 import { trustKey } from "../src/trust/key.js";
 
 function makeOffer(overrides: {
@@ -12,6 +15,7 @@ function makeOffer(overrides: {
   attributes?: Record<string, string>;
   merchantId?: string;
   availability?: Offer["availability"];
+  sourceStore?: string;
 }): Offer {
   return {
     id: overrides.id,
@@ -28,7 +32,7 @@ function makeOffer(overrides: {
       domain: "shop.example",
     },
     availability: overrides.availability ?? "in_stock",
-    sourceStore: "test-store",
+    sourceStore: overrides.sourceStore ?? "test-store",
     sponsored: overrides.sponsored,
   };
 }
@@ -79,6 +83,216 @@ describe("rankOffers — the DoD neutrality test", () => {
 });
 
 describe("rankOffers — criteria scoring & reasons", () => {
+  it("marks every failed required named criterion with its stable code and audit metadata", () => {
+    const base = makeOffer({ id: "candidate", priceAmount: 60_000, sponsored: false, availability: "preorder" });
+    const late = { ...base, shipping: { deliveryBy: "2026-09-10" } };
+    const cases = [
+      {
+        offer: base,
+        criterion: { id: "storage", label: "128GB", importance: "required", kind: "attribute", value: "128GB" },
+        code: "required_attribute_missing",
+      },
+      {
+        offer: base,
+        criterion: { id: "budget", label: "Budget", importance: "required", kind: "max_price", value: { amount: 50_000, currency: "EUR" } },
+        code: "required_price_exceeded",
+      },
+      {
+        offer: late,
+        criterion: { id: "delivery", label: "Delivery", importance: "required", kind: "delivery_by", value: "2026-09-01" },
+        code: "required_delivery_missed",
+      },
+      {
+        offer: base,
+        criterion: { id: "delivery-known", label: "Known delivery", importance: "required", kind: "delivery_by", value: "2026-09-01" },
+        code: "required_delivery_unknown",
+      },
+      {
+        offer: base,
+        criterion: { id: "ethics", label: "Fair trade", importance: "required", kind: "ethics", value: "fair-trade" },
+        code: "required_ethics_missing",
+      },
+      {
+        offer: base,
+        criterion: { id: "stock", label: "In stock", importance: "required", kind: "availability", value: "in_stock" },
+        code: "required_availability_mismatch",
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const result = rankOffers([testCase.offer], { text: "phone", criteria: [testCase.criterion] })[0]!;
+      expect(result.reasons).toContainEqual(
+        expect.objectContaining({
+          criterionId: testCase.criterion.id,
+          importance: "required",
+          code: testCase.code,
+        }),
+      );
+    }
+
+    const qualified = makeOffer({ id: "qualified", priceAmount: 80_000, sponsored: false, attributes: { storage: "128GB" } });
+    const eliminated = makeOffer({ id: "eliminated", priceAmount: 10_000, sponsored: false });
+    const requiredAttribute = cases[0].criterion;
+    expect(
+      rankOffers([eliminated, qualified], { text: "phone", criteria: [requiredAttribute] }).map((result) => result.offer.id),
+    ).toEqual(["qualified", "eliminated"]);
+
+    const sponsoredQualified = { ...qualified, id: "sponsored-qualified", sponsored: true };
+    expect(
+      rankOffers([sponsoredQualified, eliminated], { text: "phone", criteria: [requiredAttribute] }).map((result) => result.offer.id),
+    ).toEqual(["eliminated", "sponsored-qualified"]);
+  });
+
+  it("awards fixed code-owned points for preferred matches without eliminating misses", () => {
+    const matching = {
+      ...makeOffer({
+        id: "match",
+        priceAmount: 60_000,
+        sponsored: false,
+        attributes: { storage: "128GB", sourcing: "fair-trade" },
+        availability: "in_stock",
+      }),
+      shipping: { deliveryBy: "2026-08-25" },
+    };
+    const missing = makeOffer({ id: "miss", priceAmount: 60_000, sponsored: false, availability: "preorder" });
+    const cases = [
+      {
+        criterion: { id: "storage", label: "128GB", importance: "preferred", kind: "attribute", value: "128GB" },
+        points: 12,
+      },
+      {
+        criterion: { id: "budget", label: "Budget", importance: "preferred", kind: "max_price", value: { amount: 70_000, currency: "EUR" } },
+        points: 10,
+      },
+      {
+        criterion: { id: "arrival", label: "Delivery", importance: "preferred", kind: "delivery_by", value: "2026-09-01" },
+        points: 8,
+      },
+      {
+        criterion: { id: "ethics", label: "Fair trade", importance: "preferred", kind: "ethics", value: "fair-trade" },
+        points: 6,
+      },
+      {
+        criterion: { id: "stock", label: "In stock", importance: "preferred", kind: "availability", value: "in_stock" },
+        points: 4,
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const baseline = rankOffers([matching], QUERY)[0]!.score;
+      const preferred = rankOffers([matching], { text: "phone", criteria: [testCase.criterion] })[0]!;
+      expect(preferred.score - baseline, testCase.criterion.kind).toBe(testCase.points);
+      expect(preferred.reasons).toContainEqual(
+        expect.objectContaining({ criterionId: testCase.criterion.id, importance: "preferred" }),
+      );
+
+      const missOffer =
+        testCase.criterion.kind === "max_price"
+          ? makeOffer({ id: "over-budget", priceAmount: 80_000, sponsored: false })
+          : missing;
+      const missBaseline = rankOffers([missOffer], QUERY)[0]!.score;
+      const missed = rankOffers([missOffer], { text: "phone", criteria: [testCase.criterion] })[0]!;
+      const missedReason = missed.reasons.find((reason) => reason.criterionId === testCase.criterion.id)!;
+      expect(missed.score).toBe(missBaseline);
+      expect(missedReason.importance).toBe("preferred");
+      expect(missedReason.code).toBeUndefined();
+    }
+
+    const attributeMatch = makeOffer({
+      id: "z-match",
+      priceAmount: 60_000,
+      sponsored: false,
+      attributes: { storage: "128GB" },
+    });
+    const attributeMiss = makeOffer({ id: "a-miss", priceAmount: 60_000, sponsored: false });
+    expect(rankOffers([attributeMatch, attributeMiss], QUERY).map((result) => result.offer.id)).toEqual([
+      "a-miss",
+      "z-match",
+    ]);
+    const ordered = rankOffers([attributeMiss, attributeMatch], {
+      text: "phone",
+      criteria: [cases[0].criterion],
+    });
+    expect(ordered.map((result) => result.offer.id)).toEqual(["z-match", "a-miss"]);
+    const sponsoredMatch = { ...attributeMatch, id: "sponsored-match", sponsored: true };
+    expect(
+      rankOffers([sponsoredMatch, attributeMiss], {
+        text: "phone",
+        criteria: [cases[0].criterion],
+      }).map((result) => result.offer.id),
+    ).toEqual(["a-miss", "sponsored-match"]);
+  });
+
+  it("uses zero-point typed tie breakers only after main scores tie and remains input-order independent", () => {
+    const attributeMatch = makeOffer({ id: "z-match", priceAmount: 10_000, sponsored: false, attributes: { storage: "128GB" } });
+    const attributeMiss = makeOffer({ id: "a-miss", priceAmount: 10_000, sponsored: false });
+    const attributeCriterion = {
+      id: "storage-tie",
+      label: "128GB",
+      importance: "tie_breaker",
+      kind: "attribute",
+      value: "128GB",
+    } as const;
+    const baselineScores = Object.fromEntries(rankOffers([attributeMatch, attributeMiss], QUERY).map((result) => [result.offer.id, result.score]));
+    const attributeRanked = rankOffers([attributeMiss, attributeMatch], { text: "phone", criteria: [attributeCriterion] });
+    expect(attributeRanked.map((result) => result.offer.id)).toEqual(["z-match", "a-miss"]);
+    expect(Object.fromEntries(attributeRanked.map((result) => [result.offer.id, result.score]))).toEqual(baselineScores);
+    expect(attributeRanked[0]!.reasons).toContainEqual(
+      expect.objectContaining({ criterionId: "storage-tie", importance: "tie_breaker" }),
+    );
+    expect(rankOffers([attributeMatch, attributeMiss], { text: "phone", criteria: [attributeCriterion] })).toEqual(attributeRanked);
+
+    const earlier = { ...makeOffer({ id: "z-earlier", priceAmount: 10_000, sponsored: false }), shipping: { deliveryBy: "2026-08-25" } };
+    const unknown = makeOffer({ id: "a-unknown", priceAmount: 10_000, sponsored: false });
+    expect(
+      rankOffers([unknown, earlier], {
+        text: "phone",
+        criteria: [{ id: "delivery-tie", label: "Earlier", importance: "tie_breaker", kind: "delivery_by", value: "2026-09-01" }],
+      }).map((result) => result.offer.id),
+    ).toEqual(["z-earlier", "a-unknown"]);
+
+    const ethical = makeOffer({ id: "z-ethical", priceAmount: 10_000, sponsored: false, attributes: { sourcing: "fair-trade" } });
+    const ordinary = makeOffer({ id: "a-ordinary", priceAmount: 10_000, sponsored: false });
+    expect(
+      rankOffers([ordinary, ethical], {
+        text: "phone",
+        criteria: [{ id: "ethics-tie", label: "Fair trade", importance: "tie_breaker", kind: "ethics", value: "fair-trade" }],
+      }).map((result) => result.offer.id),
+    ).toEqual(["z-ethical", "a-ordinary"]);
+
+    const preorder = makeOffer({ id: "z-preorder", priceAmount: 10_000, sponsored: false, availability: "preorder", merchantId: "preorder-shop" });
+    const unknownStock = makeOffer({ id: "a-unknown", priceAmount: 10_000, sponsored: false, availability: "unknown", merchantId: "unknown-shop" });
+    const preorderTrust: Record<string, TrustSignal> = {
+      [trustKey(preorder.merchant)]: {
+        merchantId: preorder.merchant.id,
+        level: "known",
+        evidence: [{ source: "test", detail: "offsets the legacy preorder penalty" }],
+      },
+    };
+    expect(
+      rankOffers(
+        [unknownStock, preorder],
+        { text: "phone", criteria: [{ id: "stock-tie", label: "Preorder", importance: "tie_breaker", kind: "availability", value: "preorder" }] },
+        { trust: preorderTrust },
+      ).map((result) => result.offer.id),
+    ).toEqual(["z-preorder", "a-unknown"]);
+
+    const cheapMatch = makeOffer({ id: "match", priceAmount: 20_000, sponsored: false, attributes: { storage: "128GB" } });
+    const cheapMiss = makeOffer({ id: "miss", priceAmount: 10_000, sponsored: false });
+    expect(
+      rankOffers([cheapMatch, cheapMiss], { text: "phone", criteria: [attributeCriterion] })[0]!.offer.id,
+    ).toBe("miss");
+
+    const low = makeOffer({ id: "low", priceAmount: 10_000, sponsored: false });
+    const high = makeOffer({ id: "high", priceAmount: 20_000, sponsored: false });
+    expect(
+      rankOffers([high, low], {
+        text: "phone",
+        criteria: [{ id: "price-tie", label: "Lower", importance: "tie_breaker", kind: "max_price", value: { amount: 30_000, currency: "EUR" } }],
+      }).map((result) => result.offer.id),
+    ).toEqual(["low", "high"]);
+  });
+
   it("cites matched must-have attributes and ranks the matching offer first", () => {
     const matching = makeOffer({
       id: "match",
@@ -162,6 +376,15 @@ describe("rankOffers — criteria scoring & reasons", () => {
     const a = rankOffers(offers, QUERY);
     const b = rankOffers([...offers].reverse(), QUERY);
     expect(a).toEqual(b);
+  });
+
+  it("uses the full store-scoped offer tuple as the final total-order key", () => {
+    const alpha = makeOffer({ id: "same-id", sourceStore: "alpha", priceAmount: 100, sponsored: false });
+    const beta = makeOffer({ id: "same-id", sourceStore: "beta", priceAmount: 100, sponsored: false });
+    const forward = rankOffers([beta, alpha], QUERY);
+    const reversed = rankOffers([alpha, beta], QUERY);
+    expect(forward).toEqual(reversed);
+    expect(forward.map((result) => result.offer.sourceStore)).toEqual(["alpha", "beta"]);
   });
 });
 

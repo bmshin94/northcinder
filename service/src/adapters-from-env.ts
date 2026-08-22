@@ -31,6 +31,75 @@ import { createDemoSponsoredAdapter } from "./demo/sponsored-demo-adapter.js";
 
 export type EnvSource = Record<string, string | undefined>;
 
+export type DiscoverySourceStatus = "ready" | "not_configured" | "invalid_configuration";
+
+export interface DiscoverySourceReadiness {
+  store: "amazon" | "ebay" | "etsy" | "shopify" | "woocommerce";
+  status: DiscoverySourceStatus;
+}
+
+const present = (value: string | undefined): boolean => value !== undefined && value.trim() !== "";
+
+/** Derive adapter configuration readiness without making provider or product
+ * requests. "ready" means locally sufficient configuration is present; it
+ * does not claim that a third-party credential or endpoint is live. */
+export function discoverySourcesFromEnv(env: EnvSource): DiscoverySourceReadiness[] {
+  const amazon: DiscoverySourceReadiness = {
+    store: "amazon",
+    status: present(env.AMAZON_SESSION_PROFILE) ? "ready" : "not_configured",
+  };
+
+  const ebayId = present(env.EBAY_CLIENT_ID);
+  const ebaySecret = present(env.EBAY_CLIENT_SECRET);
+  const ebayEnvironmentValid =
+    env.EBAY_ENV === undefined || env.EBAY_ENV === "" || env.EBAY_ENV === "sandbox" || env.EBAY_ENV === "production";
+  const ebay: DiscoverySourceReadiness = {
+    store: "ebay",
+    status:
+      ebayId !== ebaySecret || !ebayEnvironmentValid
+        ? "invalid_configuration"
+        : ebayId
+          ? "ready"
+          : "not_configured",
+  };
+
+  const etsy: DiscoverySourceReadiness = {
+    store: "etsy",
+    status: present(env.ETSY_API_KEY) ? "ready" : "not_configured",
+  };
+
+  let shopifyStatus: DiscoverySourceStatus;
+  try {
+    createShopifyAdapter({ env });
+    if (present(env.SHOPIFY_UCP_AGENT_PROFILE_URL)) {
+      const profile = new URL(env.SHOPIFY_UCP_AGENT_PROFILE_URL!);
+      shopifyStatus = profile.protocol === "https:" && !profile.username && !profile.password
+        ? "ready"
+        : "invalid_configuration";
+    } else {
+      shopifyStatus = (env.SHOPIFY_MCP_SHOPS ?? "").split(",").some((shop) => shop.trim() !== "")
+        ? "invalid_configuration"
+        : "not_configured";
+    }
+  } catch {
+    shopifyStatus = "invalid_configuration";
+  }
+  const shopify: DiscoverySourceReadiness = { store: "shopify", status: shopifyStatus };
+
+  let woocommerceStatus: DiscoverySourceStatus;
+  try {
+    createWoocommerceAdapter({ env });
+    woocommerceStatus = (env.WOOCOMMERCE_STORE_HOSTS ?? "").split(",").some((host) => host.trim() !== "")
+      ? "ready"
+      : "not_configured";
+  } catch {
+    woocommerceStatus = "invalid_configuration";
+  }
+  const woocommerce: DiscoverySourceReadiness = { store: "woocommerce", status: woocommerceStatus };
+
+  return [amazon, ebay, etsy, shopify, woocommerce];
+}
+
 export function buildAdaptersFromEnv(env: EnvSource): StoreAdapter[] {
   const adapters: StoreAdapter[] = [
     createShopifyAdapter({ env }),

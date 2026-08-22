@@ -128,7 +128,7 @@ export function createRemoteHttpServer(deps: RemoteHttpServerDeps): Server {
     const url = new URL(req.url ?? "/", "http://localhost");
 
     if (url.pathname === HEALTH_PATH && req.method === "GET") {
-      writeJson(res, 200, { ok: true, service: "northcinder-remote", version: "0.1.0" });
+      writeJson(res, 200, { ok: true, service: "northcinder-remote", version: "0.2.0" });
       return;
     }
 

@@ -45,12 +45,13 @@ import type { Watch } from "@northcinder/protocol";
 import type { OrderGraphStore } from "@northcinder/orders";
 import type { OrderRecord } from "@northcinder/checkout";
 import { readAuditPage, type AuditLog } from "./audit-log.js";
+import { readDecisionStates, type PersistedDecisionState } from "./decision-state.js";
 import type { ApprovalRequestEvent, AuthorizationStore } from "./authorization.js";
 import { BRAND_NAME } from "./brand.js";
 import { formatMoney, renderOrderTuple } from "./order-tuple.js";
 import type { OrderStore } from "./order-store.js";
 
-export const DASHBOARD_TABS = ["profile", "watches", "audit", "orders"] as const;
+export const DASHBOARD_TABS = ["profile", "watches", "decisions", "audit", "orders"] as const;
 export type DashboardTab = (typeof DASHBOARD_TABS)[number];
 
 export interface LocalUiDeps {
@@ -65,6 +66,8 @@ export interface LocalUiDeps {
   orderGraph?: OrderGraphStore;
   /** Injectable only for deterministic boundary verification; production uses the bounded audit reader. */
   readAuditPage?: typeof readAuditPage;
+  /** Injectable only for deterministic boundary verification; production uses the bounded audit reader. */
+  readDecisionStates?: typeof readDecisionStates;
 }
 
 /** Random per-boot session token (256 bits, URL-safe). */
@@ -225,6 +228,22 @@ const STYLE = `
   details.json summary { cursor: pointer; color: var(--ink-2); font-size: 11.5px; }
   details.json pre { background: var(--surface); border: 1px solid var(--line); padding: 8px 10px; border-radius: 6px; font-size: 11.5px; overflow-x: auto; font-family: ui-monospace, monospace; }
   .table-wrap { width: 100%; overflow-x: auto; }
+  .decision-state { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 12px; }
+  .decision-state + .decision-state { margin-top: 22px; }
+  .decision-state h2 { font-size: 15px; margin: 0 0 4px; }
+  .decision-meta { margin: 0 0 10px; color: var(--ink-2); font-size: 12px; }
+  details.decision-row { border-top: 1px solid var(--line); }
+  details.decision-row > summary { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; min-height: 44px; cursor: pointer; list-style: none; }
+  details.decision-row > summary::-webkit-details-marker { display: none; }
+  .decision-role { font-family: ui-monospace, monospace; font-size: 10px; font-weight: 600; letter-spacing: .05em; color: var(--verified); text-transform: uppercase; }
+  .decision-title { font-weight: 600; overflow-wrap: anywhere; }
+  .decision-rank { color: var(--ink-2); font-size: 11px; }
+  .decision-detail { padding: 0 0 12px; }
+  .decision-detail dl { display: grid; grid-template-columns: minmax(110px, .35fr) minmax(0, 1fr); gap: 7px 12px; margin: 0; font-size: 12px; }
+  .decision-detail dt { color: var(--ink-2); font-family: ui-monospace, monospace; font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
+  .decision-detail dd { margin: 0; overflow-wrap: anywhere; }
+  .decision-detail ul { margin: 8px 0 0; padding-left: 18px; }
+  .decision-warning { color: var(--flag); font-size: 12px; }
 
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
@@ -258,6 +277,7 @@ const STYLE = `
     table.ledger td[colspan] { display: block; }
     table.ledger td[colspan]::before { content: none; }
     table.ledger td form { margin: 0; }
+    .decision-detail dl { grid-template-columns: minmax(88px, .35fr) minmax(0, 1fr); }
   }
 
   /* ---------- approval receipt card (centered focused surface) ---------- */
@@ -302,6 +322,7 @@ function brandMarkSvg(size: number): string {
 const RAIL_ICONS: Record<DashboardTab, string> = {
   profile: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="2"/><path d="M4 20c0-4.4 3.6-7 8-7s8 2.6 8 7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
   watches: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="2"/><path d="M12 8v4l3 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  decisions: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><path d="M5 5h14M5 12h14M5 19h9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="m16 17 2 2 3-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   orders: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><rect x="4" y="3" width="16" height="18" rx="1.5" stroke="currentColor" stroke-width="2"/><path d="M8 8h8M8 12h8M8 16h5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
   audit: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><path d="M4 4h16v13l-4 3H4V4z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M8 9h8M8 13h5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
 };
@@ -666,10 +687,11 @@ export function createLocalUiApp(deps: LocalUiDeps): Hono {
 
   // ----------------------------------------------------------- dashboard
   function profileEntryFields(e: ProfileEntry): string {
-    const { id, origin, source, createdAt, kind, ...fields } = e;
-    return Object.entries(fields)
-      .map(([k, v]) => `${esc(k)}: ${esc(typeof v === "object" ? formatMoney(v as Money) : v)}`)
-      .join(", ");
+    const { id, origin, source, createdAt, kind, scope, ...fields } = e;
+    return [
+      ...(scope === undefined ? [] : [`scope: ${esc(scope.kind)}, value: ${esc(scope.value)}`]),
+      ...Object.entries(fields).map(([key, value]) => `${esc(key)}: ${esc(key === "maxPrice" ? formatMoney(value as Money) : value)}`),
+    ].join(", ");
   }
 
   function profileRows(c: Context, entries: ProfileEntry[]): string {
@@ -695,6 +717,10 @@ export function createLocalUiApp(deps: LocalUiDeps): Hono {
     const entries: ProfileEntry[] = deps.profile.list();
     const stated = entries.filter((e) => e.origin === "stated");
     const inferred = entries.filter((e) => e.origin === "inferred");
+    const proposals = deps.profile.listProposals();
+    const proposalRows = proposals.length === 0
+      ? `<tr><td colspan="4" class="muted">No pending proposals.</td></tr>`
+      : proposals.map((proposal) => `<tr><td data-label="Brand">${esc(proposal.brand)}</td><td data-label="Proposed preference">${esc(proposal.stance)} · reason: ${esc(proposal.reason)}${proposal.scope ? ` · scope: ${esc(proposal.scope.kind)}, value: ${esc(proposal.scope.value)}` : ""}</td><td data-label="Evidence" class="muted">${esc(proposal.evidenceKeys.length)} distinct record(s) · ${esc(proposal.source)}</td><td data-label="Status">pending</td></tr>`).join("\n");
     const forms = ADD_FORMS.map(
       (f) =>
         `<details class="addform"><summary>+ ${esc(f.label)}</summary><form method="post" action="/profile/add?t=${encodeURIComponent(t(c))}"><input type="hidden" name="kind" value="${esc(f.kind)}">${f.fields}<button class="small" type="submit">Save stated preference</button></form></details>`,
@@ -707,6 +733,9 @@ export function createLocalUiApp(deps: LocalUiDeps): Hono {
       `<h3><span class="badge inferred">INFERRED</span> — ${esc(BRAND_NAME)}'s guesses, learned from your feedback</h3>`,
       `<p class="muted">These were NOT stated by you. Delete any of them — one click, no questions.</p>`,
       `<div class="table-wrap"><table class="ledger"><tr><th scope="col">kind</th><th scope="col">preference</th><th scope="col">attribution</th><th scope="col">action</th></tr>${profileRows(c, inferred)}</table></div>`,
+      `<h3>PENDING PROPOSALS</h3>`,
+      `<p class="muted">These are not preferences until confirmed or repeated by a second distinct matching offer.</p>`,
+      `<div class="table-wrap"><table class="ledger"><tr><th scope="col">brand</th><th scope="col">proposed preference</th><th scope="col">evidence</th><th scope="col">status</th></tr>${proposalRows}</table></div>`,
     ].join("\n");
   }
 
@@ -719,12 +748,17 @@ export function createLocalUiApp(deps: LocalUiDeps): Hono {
       w.lastCheckedAt === undefined
         ? "never checked yet"
         : `${w.lastCheckedAt}${w.lastPrice ? ` at ${formatMoney(w.lastPrice)}` : ""}`;
+    const health = [
+      w.lastSuccessAt !== undefined ? `last success ${w.lastSuccessAt}` : undefined,
+      w.lastFailureAt !== undefined ? `last failure ${w.lastFailureAt}` : undefined,
+      w.nextEligibleCheckAt !== undefined ? `eligible ${w.nextEligibleCheckAt}` : undefined,
+    ].filter((value): value is string => value !== undefined).join(" · ");
     const cancel =
       w.state === "active"
         ? `<form method="post" action="/watches/${encodeURIComponent(w.id)}/cancel?t=${encodeURIComponent(t(c))}"><button class="small" type="submit" aria-label="Cancel watch ${esc(w.name)}">Cancel</button></form>`
         : "";
     const dotClass = w.state === "active" ? "active" : w.state === "expired" ? "expired" : "cancelled";
-    return `<tr><td data-label="State"><span class="dot ${dotClass}"></span> ${esc(w.state.toUpperCase())}</td><td data-label="Watch">${esc(w.name)}<br><span class="muted">${esc(target)}</span></td><td data-label="Target">≤ ${esc(formatMoney(w.targetPrice))}</td><td data-label="Channel">${esc(w.channel.type)}</td><td data-label="Last checked" class="muted mono">${esc(last)}</td><td data-label="Action">${cancel}</td></tr>`;
+    return `<tr><td data-label="State"><span class="dot ${dotClass}"></span> ${esc(w.state.toUpperCase())}</td><td data-label="Watch">${esc(w.name)}<br><span class="muted">${esc(target)}</span></td><td data-label="Target">≤ ${esc(formatMoney(w.targetPrice))}</td><td data-label="Channel">${esc(w.channel.type)}</td><td data-label="Last checked" class="muted mono">${esc(last)}${health ? `<br>${esc(health)}` : ""}</td><td data-label="Action">${cancel}</td></tr>`;
   }
 
   function watchesTab(c: Context): string {
@@ -764,11 +798,28 @@ export function createLocalUiApp(deps: LocalUiDeps): Hono {
   }
 
   /** Email/import-derived rows from the order graph merged order graph — shipment status + return deadline, every field escaped (store-controlled, untrusted). */
+  function reminderStatus(detail: ReturnType<OrderGraphStore["getOrder"]>): string {
+    if (!detail) return "no reminder facts";
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    const returnStatus = detail.returnWindow === undefined
+      ? "return: none"
+      : detail.returnWindow.reminderSentAt !== undefined
+        ? "return: sent"
+        : detail.returnWindow.deadline < today ? "return: expired-unsent" : "return: pending";
+    const lifecycle = detail.lifecycleReminders ?? [];
+    const lifecycleStatus = lifecycle.length === 0
+      ? "lifecycle: none"
+      : lifecycle.map((reminder) => `${reminder.kind}: ${reminder.reminderSentAt ? "sent" : reminder.dueOn < today ? "expired-unsent" : "pending"}`).join(", ");
+    return `${returnStatus}; ${lifecycleStatus}`;
+  }
+
   function emailOrderRow(o: Order): string {
     const detail = deps.orderGraph!.getOrder(o.id);
     const latestShipment = detail?.shipments[detail.shipments.length - 1];
     const shipmentStatus = latestShipment ? `${latestShipment.carrier.toUpperCase()} ${latestShipment.status}` : "—";
     const returnDeadline = detail?.returnWindow?.deadline ?? "—";
+    const outcome = detail?.outcome?.state ?? "—";
     return [
       `<tr>`,
       `<td data-label="Date" class="muted">${esc(o.orderDate)}</td>`,
@@ -776,6 +827,8 @@ export function createLocalUiApp(deps: LocalUiDeps): Hono {
       `<td data-label="Status" class="status">${esc(o.status)}</td>`,
       `<td data-label="Shipment">${esc(shipmentStatus)}</td>`,
       `<td data-label="Return by">${esc(returnDeadline)}</td>`,
+      `<td data-label="Outcome">${esc(outcome)}</td>`,
+      `<td data-label="Reminders">${esc(reminderStatus(detail))}</td>`,
       `<td data-label="Source" class="muted">${esc(o.source.kind)}</td>`,
       `</tr>`,
     ].join("");
@@ -797,10 +850,12 @@ export function createLocalUiApp(deps: LocalUiDeps): Hono {
         : [
             `<h3>Checkout orders</h3>`,
             `<div class="table-wrap">`,
-            `<table class="ledger"><tr><th scope="col">at</th><th scope="col">order</th><th scope="col">status</th><th scope="col">rail</th><th scope="col">merchant</th><th scope="col">evidence</th></tr>`,
+            `<table class="ledger"><tr><th scope="col">at</th><th scope="col">order</th><th scope="col">status</th><th scope="col">outcome</th><th scope="col">reminders</th><th scope="col">rail</th><th scope="col">merchant</th><th scope="col">evidence</th></tr>`,
             ...checkoutOrders.map(
-              (o) =>
-                `<tr><td data-label="At" class="muted">${esc(o.createdAt)}</td><td data-label="Order">${esc(o.orderId)}<br><span class="muted">offer ${esc(o.offerId)} · mandate ${esc(o.mandateId)}</span></td><td data-label="Status" class="status">${esc(o.status)}</td><td data-label="Rail">${esc(o.railId)}</td><td data-label="Merchant">${esc(o.merchantId)}</td><td data-label="Evidence"><details class="json"><summary class="muted">details</summary><pre>${esc(JSON.stringify(o.evidence, null, 2))}</pre></details></td></tr>`,
+              (o) => {
+                const detail = deps.orderGraph?.getOrder(o.orderId, checkoutOrders);
+                return `<tr><td data-label="At" class="muted">${esc(o.createdAt)}</td><td data-label="Order">${esc(o.orderId)}<br><span class="muted">offer ${esc(o.offerId)} · mandate ${esc(o.mandateId)}</span></td><td data-label="Status" class="status">${esc(o.status)}</td><td data-label="Outcome">${esc(detail?.outcome?.state ?? "—")}</td><td data-label="Reminders">${esc(reminderStatus(detail))}</td><td data-label="Rail">${esc(o.railId)}</td><td data-label="Merchant">${esc(o.merchantId)}</td><td data-label="Evidence"><details class="json"><summary class="muted">details</summary><pre>${esc(JSON.stringify(o.evidence, null, 2))}</pre></details></td></tr>`;
+              },
             ),
             `</table>`,
             `</div>`,
@@ -813,7 +868,7 @@ export function createLocalUiApp(deps: LocalUiDeps): Hono {
             `<h3>Orders from email</h3>`,
             `<p class="muted">Recovered from order-confirmation, shipping, delivery, and return-window emails — deterministically parsed, never model-generated.</p>`,
             `<div class="table-wrap">`,
-            `<table class="ledger"><tr><th scope="col">date</th><th scope="col">order</th><th scope="col">status</th><th scope="col">shipment</th><th scope="col">return by</th><th scope="col">source</th></tr>`,
+            `<table class="ledger"><tr><th scope="col">date</th><th scope="col">order</th><th scope="col">status</th><th scope="col">shipment</th><th scope="col">return by</th><th scope="col">outcome</th><th scope="col">reminders</th><th scope="col">source</th></tr>`,
             ...emailOrders.map((o) => emailOrderRow(o)),
             `</table>`,
             `</div>`,
@@ -822,9 +877,102 @@ export function createLocalUiApp(deps: LocalUiDeps): Hono {
     return [checkoutTable, emailTable].filter((s) => s.length > 0).join("\n");
   }
 
+  function safeHttpUrl(value: string | undefined): value is string {
+    if (value === undefined) return false;
+    try {
+      const url = new URL(value);
+      return (url.protocol === "http:" || url.protocol === "https:") && url.username === "" && url.password === "";
+    } catch {
+      return false;
+    }
+  }
+
+  function decisionRole(role: PersistedDecisionState["candidates"][number]["role"]): string {
+    return role === "top_fit" ? "TOP FIT" : role === "lower_risk" ? "LOWER RISK" : "BUDGET OR DIFFERENT";
+  }
+
+  function decisionCandidate(candidate: PersistedDecisionState["candidates"][number]): string {
+    const title = safeHttpUrl(candidate.url)
+      ? `<a href="${esc(candidate.url)}" target="_blank" rel="noopener noreferrer">${esc(candidate.title)}</a>`
+      : esc(candidate.title);
+    const image = safeHttpUrl(candidate.imageUrl)
+      ? `<a href="${esc(candidate.imageUrl)}" target="_blank" rel="noopener noreferrer">product image</a>`
+      : "not provided";
+    const variant = candidate.productIdentity?.variant ?? "unknown";
+    const landed = candidate.landedCost ? `${formatMoney(candidate.landedCost.knownTotal)} ${candidate.landedCost.completeness}` : "unknown";
+    const freshness = candidate.freshness.status === "known" ? `observed ${candidate.freshness.observedAt}` : "unknown";
+    const unknowns = candidate.importantUnknowns.length ? candidate.importantUnknowns.map(esc).join("; ") : "none recorded";
+    return [
+      `<details class="decision-row">`,
+      `<summary><span><span class="decision-role">${esc(decisionRole(candidate.role))}</span><br><span class="decision-title">${esc(candidate.title)}</span></span><span class="decision-rank mono">rank ${esc(candidate.rank)} · Details and evidence</span></summary>`,
+      `<div class="decision-detail">`,
+      `<p class="decision-meta">${esc(candidate.roleReason)}</p>`,
+      `<dl>`,
+      `<dt>Candidate</dt><dd>${title}</dd>`,
+      `<dt>Variant</dt><dd>${esc(variant)}</dd>`,
+      `<dt>Image</dt><dd>${image}</dd>`,
+      `<dt>Price</dt><dd>${esc(formatMoney(candidate.price))}</dd>`,
+      `<dt>Landed cost</dt><dd>${esc(landed)}</dd>`,
+      `<dt>Seller</dt><dd>${esc(candidate.merchant.name)} · ${esc(candidate.sellerState)}</dd>`,
+      `<dt>Freshness</dt><dd>${esc(freshness)}</dd>`,
+      `<dt>Verification</dt><dd>${esc(candidate.verificationState)}</dd>`,
+      `<dt>Readiness</dt><dd>${esc(candidate.decisionStatus)}</dd>`,
+      `<dt>Decisive downside</dt><dd>${esc(candidate.decisiveDownside)}</dd>`,
+      `<dt>Important unknowns</dt><dd>${unknowns}</dd>`,
+      `</dl>`,
+      `<p class="decision-meta"><strong>Why this:</strong> ${esc(candidate.whyThis.join("; "))}</p>`,
+      candidate.tradeoffs.length ? `<p class="decision-meta"><strong>Tradeoffs:</strong> ${esc(candidate.tradeoffs.map((tradeoff) => `${tradeoff.dimension}: ${tradeoff.detail}`).join("; "))}</p>` : "",
+      candidate.sponsored ? `<p class="decision-warning">Sponsored placement is disclosed and remains below organic results.</p>` : "",
+      `</div>`,
+      `</details>`,
+    ].join("\n");
+  }
+
+  function decisionsTab(): string {
+    const view = (deps.readDecisionStates ?? readDecisionStates)(deps.audit.path);
+    if (view.states.length === 0) {
+      return `<p class="muted">No saved decisions yet. Run a comparison in your MCP host to create a bounded, redacted display state here.</p>`;
+    }
+    const states = view.states.map((state) => {
+      const criteria = state.criteria.maxPrice ? `${state.criteria.text} · maximum ${formatMoney(state.criteria.maxPrice)}` : state.criteria.text;
+      const coverage = state.coverage.map((entry) => `${entry.store}: ${entry.status} (${entry.offerCount})${entry.detail ? ` — ${entry.detail}` : ""}`).join("; ");
+      const questions = state.unresolvedResearchQuestions.length ? `<p class="decision-meta"><strong>Research questions:</strong> ${esc(state.unresolvedResearchQuestions.join("; "))}</p>` : "";
+      const projectionWarnings = state.projectionWarnings.length
+        ? `<p class="decision-warning"><strong>Bounded display note:</strong> ${esc(state.projectionWarnings.join(" "))}</p>`
+        : "";
+      const chosen = state.chosenOffer ? `${state.chosenOffer.sourceStore}:${state.chosenOffer.offerId}` : "No candidate has been chosen.";
+      const outcome = state.outcome ? state.outcome : "No lifecycle outcome is recorded.";
+      const profileEffects = state.profileEffects.applied.length + state.profileEffects.overridden.length === 0
+        ? "No profile effects were recorded."
+        : [
+            ...state.profileEffects.applied.map((effect) => `applied ${effect.kind} (${effect.id}) to ${effect.appliedTo}: ${effect.detail}`),
+            ...state.profileEffects.overridden.map((effect) => `overrode ${effect.kind} (${effect.id}) with ${effect.overriddenBy}`),
+          ].join("; ");
+      return [
+        `<section class="decision-state">`,
+        `<h2>${esc(state.request)}</h2>`,
+        `<p class="decision-meta mono">${esc(state.searchId)} · ${esc(state.readiness.status)} · newest saved state</p>`,
+        `<p class="decision-meta"><strong>Criteria:</strong> ${esc(criteria)}</p>`,
+        `<p class="decision-meta"><strong>Coverage:</strong> ${esc(coverage)}</p>`,
+        `<p class="decision-meta"><strong>Chosen:</strong> ${esc(chosen)}</p>`,
+        `<p class="decision-meta"><strong>Outcome:</strong> ${esc(outcome)}</p>`,
+        `<p class="decision-meta"><strong>Profile effects:</strong> ${esc(profileEffects)}</p>`,
+        projectionWarnings,
+        questions,
+        state.candidates.slice(0, 3).map(decisionCandidate).join("\n"),
+        `</section>`,
+      ].join("\n");
+    }).join("\n");
+    const warning = view.invalidRecords > 0
+      ? `<p class="decision-warning">${esc(view.invalidRecords)} invalid decision record${view.invalidRecords === 1 ? " was" : "s were"} skipped.</p>`
+      : "";
+    return `${warning}${states}`;
+  }
+
   const TAB_SUBTITLE: Record<DashboardTab, string> = {
     profile: "Preferences that steer search and ranking — what you stated yourself, and what was inferred from your feedback.",
     watches: "Notify when a target price is hit — they never buy anything.",
+    decisions: "Read-only, bounded display states from your local audit trail, including confirmed outcomes only when a matching checkout record exists.",
     orders: "Every completed or handed-off checkout, plus orders recovered from order-confirmation/shipping/return-window emails.",
     audit: "Read-only, append-only trail — every search, ranking (with reasons), authorization, approval, and checkout attempt this client ever made. Newest first.",
   };
@@ -840,13 +988,15 @@ export function createLocalUiApp(deps: LocalUiDeps): Hono {
         ? profileTab(c)
         : tab === "watches"
           ? watchesTab(c)
+          : tab === "decisions"
+            ? decisionsTab()
           : tab === "audit"
             ? auditTab(c)
             : (!deps.orders && !deps.orderGraph)
               ? dashboardUnconfigured(c, "orders", "order")
               : ordersTab();
     } catch {
-      const label: Record<DashboardTab, string> = { profile: "Profile", watches: "Watch", audit: "Audit", orders: "Order" };
+      const label: Record<DashboardTab, string> = { profile: "Profile", watches: "Watch", decisions: "Decision", audit: "Audit", orders: "Order" };
       content = dashboardRecovery(c, tab, `${label[tab]} data could not be read safely.`);
     }
     const body = `<p class="surface-sub">${esc(TAB_SUBTITLE[tab])}</p>\n${content}`;

@@ -5,7 +5,7 @@
  * throws — resolves with a discriminated result.
  */
 export type HttpResult =
-  | { ok: true; status: number; bodyText: string }
+  | { ok: true; status: number; bodyText: string; retryAfterMs?: number }
   | { ok: false; kind: "timeout" | "network" | "too_large" | "aborted" };
 
 export interface FetchBudgetOptions {
@@ -24,21 +24,91 @@ export interface FetchBudgetOptions {
 const RETRYABLE_STATUS = new Set([429, 502, 503, 504]);
 const DEFAULT_MAX_BODY = 2 * 1024 * 1024;
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
+function retryAfterMs(value: string | null, now = Date.now()): number | undefined {
+  if (value === null) return undefined;
+  if (/^\d+$/.test(value.trim())) {
+    const milliseconds = Number(value) * 1_000;
+    return Number.isSafeInteger(milliseconds) ? milliseconds : undefined;
+  }
+  const date = Date.parse(value);
+  if (Number.isNaN(date)) return undefined;
+  return Math.max(0, date - now);
 }
 
-async function readBodyCapped(response: Response, maxBytes: number): Promise<string | null> {
+function waitForRetryAfter(delayMs: number, deadline: number, signal?: AbortSignal): Promise<"ready" | "timeout" | "aborted"> {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) return Promise.resolve("timeout");
+  if (signal?.aborted) return Promise.resolve("aborted");
+  return new Promise((resolve) => {
+    let delayTimer: ReturnType<typeof setTimeout> | undefined;
+    let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+    const finish = (outcome: "ready" | "timeout" | "aborted") => {
+      if (delayTimer !== undefined) clearTimeout(delayTimer);
+      if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
+      signal?.removeEventListener("abort", onAbort);
+      resolve(outcome);
+    };
+    const onAbort = () => finish("aborted");
+    delayTimer = setTimeout(() => finish("ready"), delayMs);
+    deadlineTimer = setTimeout(() => finish("timeout"), remaining);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+function waitForBodyCancellation(cancellation: Promise<void>, deadline: number, signal?: AbortSignal): Promise<"done" | "timeout" | "aborted"> {
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) return Promise.resolve("timeout");
+  if (signal?.aborted) return Promise.resolve("aborted");
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => finish("timeout"), remaining);
+    const onAbort = () => finish("aborted");
+    const finish = (outcome: "done" | "timeout" | "aborted") => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      resolve(outcome);
+    };
+    cancellation.then(() => finish("done"), () => finish("done"));
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+async function readBodyCapped(response: Response, maxBytes: number, signal?: AbortSignal): Promise<string | null | undefined> {
   const body = response.body;
   if (!body) {
-    const text = await response.text();
+    if (signal?.aborted) return undefined;
+    const text = await new Promise<string | undefined>((resolve) => {
+      let settled = false;
+      const finish = (value: string | undefined) => {
+        if (settled) return;
+        settled = true;
+        signal?.removeEventListener("abort", onAbort);
+        resolve(value);
+      };
+      const onAbort = () => finish(undefined);
+      signal?.addEventListener("abort", onAbort, { once: true });
+      response.text().then(finish, () => finish(undefined));
+    });
+    if (text === undefined) return undefined;
     return new TextEncoder().encode(text).byteLength > maxBytes ? null : text;
   }
   const reader = body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
   for (;;) {
-    const { done, value } = await reader.read();
+    if (signal?.aborted) {
+      void reader.cancel().catch(() => {});
+      return undefined;
+    }
+    const next = await new Promise<ReadableStreamReadResult<Uint8Array> | undefined>((resolve) => {
+      const onAbort = () => {
+        void reader.cancel().catch(() => {});
+        resolve(undefined);
+      };
+      reader.read().then(resolve, () => resolve(undefined)).finally(() => signal?.removeEventListener("abort", onAbort));
+      signal?.addEventListener("abort", onAbort, { once: true });
+    });
+    if (next === undefined) return undefined;
+    const { done, value } = next;
     if (done) break;
     total += value.byteLength;
     if (total > maxBytes) {
@@ -54,6 +124,61 @@ async function readBodyCapped(response: Response, maxBytes: number): Promise<str
     offset += chunk.byteLength;
   }
   return new TextDecoder().decode(merged);
+}
+
+async function resultFromResponse(
+  response: Response,
+  maxBodyBytes: number,
+  retryAfter: number | undefined,
+  deadline: number,
+  signal?: AbortSignal,
+  preserveReceivedOnTimeout = false,
+): Promise<HttpResult> {
+  const readController = new AbortController();
+  const bodyRead = readBodyCapped(response, maxBodyBytes, readController.signal)
+    .then((bodyText) => ({ kind: "body" as const, bodyText }))
+    .catch(() => ({ kind: "body" as const, bodyText: undefined }));
+  const bounded = await new Promise<
+    { kind: "body"; bodyText: string | null | undefined } | { kind: "timeout" | "aborted" }
+  >((resolve) => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = (outcome: { kind: "body"; bodyText: string | null | undefined } | { kind: "timeout" | "aborted" }) => {
+      if (settled) return;
+      settled = true;
+      if (timer !== undefined) clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      resolve(outcome);
+    };
+    const onAbort = () => finish({ kind: "aborted" });
+    if (signal?.aborted) {
+      finish({ kind: "aborted" });
+      return;
+    }
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      finish({ kind: "timeout" });
+      return;
+    }
+    timer = setTimeout(() => finish({ kind: "timeout" }), remaining);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    bodyRead.then(finish);
+  });
+  if (bounded.kind !== "body") {
+    readController.abort();
+    if (bounded.kind === "aborted") return { ok: false, kind: "aborted" };
+    return preserveReceivedOnTimeout
+      ? { ok: true, status: response.status, bodyText: "", ...(retryAfter !== undefined ? { retryAfterMs: retryAfter } : {}) }
+      : { ok: false, kind: "timeout" };
+  }
+  const bodyText = bounded.bodyText;
+  if (bodyText === undefined) {
+    if (signal?.aborted) return { ok: false, kind: "aborted" };
+    return { ok: true, status: response.status, bodyText: "", ...(retryAfter !== undefined ? { retryAfterMs: retryAfter } : {}) };
+  }
+  return bodyText === null
+    ? { ok: false, kind: "too_large" }
+    : { ok: true, status: response.status, bodyText, ...(retryAfter !== undefined ? { retryAfterMs: retryAfter } : {}) };
 }
 
 export async function fetchWithBudget(
@@ -79,12 +204,47 @@ export async function fetchWithBudget(
     let outcome: HttpResult | "retry";
     try {
       const response = await fetchImpl(url, { ...init, signal: controller.signal });
-      if (RETRYABLE_STATUS.has(response.status) && attempt < retries && deadline - Date.now() > 100) {
-        await response.body?.cancel().catch(() => {});
-        outcome = "retry";
+      const responseRetryAfterMs = retryAfterMs(response.headers.get("retry-after"));
+      const remainingAfterResponse = deadline - Date.now();
+      const retryDelay = responseRetryAfterMs ?? Math.min(Math.random() * 200 * (attempt + 1), Math.max(0, remainingAfterResponse) / 4);
+      if (RETRYABLE_STATUS.has(response.status) && attempt < retries && retryDelay <= remainingAfterResponse) {
+        const preservedResponse = response.clone();
+        const preservedResult = resultFromResponse(preservedResponse, maxBodyBytes, responseRetryAfterMs, deadline, options.signal, true)
+          .catch((): HttpResult => ({ ok: false, kind: "network" }));
+        const cancellation = response.body?.cancel();
+        if (cancellation !== undefined) {
+          const cancelled = await waitForBodyCancellation(cancellation, deadline, options.signal);
+          if (cancelled === "aborted") outcome = { ok: false, kind: "aborted" };
+          else if (cancelled === "timeout" || retryDelay > deadline - Date.now()) {
+            outcome = await preservedResult;
+          } else {
+            const waited = await waitForRetryAfter(retryDelay, deadline, options.signal);
+            outcome = waited === "ready"
+              ? "retry"
+              : waited === "aborted"
+                ? { ok: false, kind: "aborted" }
+                : await preservedResult;
+          }
+        } else {
+          const waited = await waitForRetryAfter(retryDelay, deadline, options.signal);
+          outcome = waited === "ready"
+            ? "retry"
+            : waited === "aborted"
+              ? { ok: false, kind: "aborted" }
+              : await preservedResult;
+        }
       } else {
-        const bodyText = await readBodyCapped(response, maxBodyBytes);
-        outcome = bodyText === null ? { ok: false, kind: "too_large" } : { ok: true, status: response.status, bodyText };
+        const preserveReceivedOnTimeout = RETRYABLE_STATUS.has(response.status)
+          && attempt < retries
+          && retryDelay > remainingAfterResponse;
+        outcome = await resultFromResponse(
+          response,
+          maxBodyBytes,
+          responseRetryAfterMs,
+          deadline,
+          options.signal,
+          preserveReceivedOnTimeout,
+        );
       }
     } catch {
       if (options.signal?.aborted) outcome = { ok: false, kind: "aborted" };
@@ -97,9 +257,6 @@ export async function fetchWithBudget(
     }
 
     if (outcome !== "retry") return outcome;
-    // Bounded full-jitter backoff, capped so it never eats the whole budget.
-    const backoff = Math.min(Math.random() * 200 * (attempt + 1), Math.max(0, deadline - Date.now()) / 4);
-    await sleep(backoff);
   }
   return { ok: false, kind: "network" };
 }

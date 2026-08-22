@@ -1,15 +1,21 @@
 import { describe, expect, it } from "vitest";
 import {
   BrowserObservationSchema,
+  BuyerContextSchema,
+  DecisionCriterionSchema,
+  ExactProductIdentitySchema,
+  LandedCostSchema,
   MoneySchema,
   OfferSchema,
   requiresNativeRevalidation,
   ProductSchema,
   PurchaseMandateSchema,
   RankedResultSchema,
+  ReturnPolicySchema,
   SearchQuerySchema,
   StoreErrorSchema,
   TrustSignalSchema,
+  WarrantySchema,
 } from "../src/index.js";
 
 // ---------------------------------------------------------------------------
@@ -85,6 +91,18 @@ describe("OfferSchema", () => {
     expect(OfferSchema.safeParse(noProvenance).success).toBe(false);
   });
 
+  it("accepts 500-character offer references and rejects longer wire identifiers", () => {
+    expect(
+      OfferSchema.safeParse({
+        ...validOffer,
+        id: "o".repeat(500),
+        sourceStore: "s".repeat(500),
+      }).success,
+    ).toBe(true);
+    expect(OfferSchema.safeParse({ ...validOffer, id: "o".repeat(501) }).success).toBe(false);
+    expect(OfferSchema.safeParse({ ...validOffer, sourceStore: "s".repeat(501) }).success).toBe(false);
+  });
+
   it("requires browser provenance to bind sourceStore and acquisition together", () => {
     const provenanceStripped = { ...validOffer, sourceStore: "agent_browser" };
     expect(OfferSchema.safeParse(provenanceStripped).success).toBe(false);
@@ -111,6 +129,82 @@ describe("OfferSchema", () => {
       expect(OfferSchema.safeParse({ ...validOffer, availability: ok }).success).toBe(true);
     }
   });
+
+  it("accepts arithmetic-safe landed cost and rejects inconsistent price, currency, total, completeness, and bounds", () => {
+    const landedCost = {
+      components: [
+        { kind: "item_price", amount: validOffer.price },
+        {
+          kind: "shipping",
+          amount: { amount: 500, currency: "EUR" },
+          sourceUrl: "https://shop.example.com/shipping",
+          observedAt: "2026-08-20T12:00:00.000Z",
+        },
+      ],
+      knownTotal: { amount: 60400, currency: "EUR" },
+      unknownComponents: [],
+      completeness: "complete",
+    } as const;
+
+    expect(LandedCostSchema.parse(landedCost)).toEqual(landedCost);
+    expect(OfferSchema.parse({ ...validOffer, landedCost }).landedCost).toEqual(landedCost);
+
+    const mutations = [
+      {
+        ...landedCost,
+        components: [{ kind: "item_price", amount: { amount: 1, currency: "EUR" } }],
+        knownTotal: { amount: 1, currency: "EUR" },
+      },
+      {
+        ...landedCost,
+        components: [
+          landedCost.components[0],
+          { kind: "shipping", amount: { amount: 500, currency: "USD" } },
+        ],
+      },
+      { ...landedCost, knownTotal: { amount: 60401, currency: "EUR" } },
+      { ...landedCost, unknownComponents: ["tax"] },
+      { ...landedCost, completeness: "partial", unknownComponents: [] },
+      { ...landedCost, components: [landedCost.components[1]], knownTotal: { amount: 500, currency: "EUR" } },
+      {
+        ...landedCost,
+        components: [landedCost.components[0], landedCost.components[0]],
+        knownTotal: { amount: 119800, currency: "EUR" },
+      },
+      { ...landedCost, components: Array.from({ length: 13 }, () => landedCost.components[0]) },
+    ];
+    for (const invalid of mutations) {
+      expect(OfferSchema.safeParse({ ...validOffer, landedCost: invalid }).success).toBe(false);
+    }
+  });
+
+  it("preserves strict sourced return and warranty facts while rejecting malformed evidence", () => {
+    const returnPolicy = {
+      summary: "Returns accepted in original condition.",
+      sourceUrl: "https://shop.example.com/returns",
+      observedAt: "2026-08-20T12:00:00.000Z",
+      windowDays: 30,
+      returnShippingPayer: "buyer",
+      restockingFee: { amount: 1500, currency: "EUR" },
+    } as const;
+    const warranty = {
+      summary: "Two-year manufacturer warranty.",
+      sourceUrl: "https://shop.example.com/warranty",
+      observedAt: "2026-08-20T12:00:00.000Z",
+      durationMonths: 24,
+      responsibleParty: "manufacturer",
+    } as const;
+
+    expect(ReturnPolicySchema.parse(returnPolicy)).toEqual(returnPolicy);
+    expect(WarrantySchema.parse(warranty)).toEqual(warranty);
+    expect(OfferSchema.parse({ ...validOffer, returnPolicy, warranty })).toMatchObject({
+      returnPolicy,
+      warranty,
+    });
+    expect(ReturnPolicySchema.safeParse({ ...returnPolicy, sourceUrl: "not a url" }).success).toBe(false);
+    expect(WarrantySchema.safeParse({ ...warranty, observedAt: "yesterday" }).success).toBe(false);
+    expect(ReturnPolicySchema.safeParse({ ...returnPolicy, score: 100 }).success).toBe(false);
+  });
 });
 
 describe("ProductSchema", () => {
@@ -128,6 +222,35 @@ describe("ProductSchema", () => {
       expect(ProductSchema.safeParse({ ...product, url: `${product.url}${suffix}` }).success).toBe(false);
     }
     expect(ProductSchema.safeParse({ ...product, url: `${product.url}?variant=black-large` }).success).toBe(true);
+  });
+
+  it("preserves exact product identity while rejecting empty variants and duplicate scheme:value identifiers", () => {
+    const identity = {
+      canonical: "Fairphone 5 — 128GB / Matte Black — model FP5 — generation 5 — GTIN 08718816064510 — MPN FP5-128-BLK",
+      variant: "128GB / Matte Black",
+      model: "FP5",
+      generation: "5",
+      identifiers: [
+        { scheme: "gtin", value: "08718816064510" },
+        { scheme: "mpn", value: "FP5-128-BLK" },
+      ],
+    } as const;
+
+    expect(ExactProductIdentitySchema.parse(identity)).toEqual(identity);
+    expect(ProductSchema.parse({ ...product, identity }).identity).toEqual(identity);
+    expect(ExactProductIdentitySchema.safeParse({ ...identity, variant: "" }).success).toBe(false);
+    expect(
+      ExactProductIdentitySchema.safeParse({
+        ...identity,
+        canonical: "Fairphone 5",
+      }).success,
+    ).toBe(false);
+    expect(
+      ExactProductIdentitySchema.safeParse({
+        ...identity,
+        identifiers: [...identity.identifiers, { scheme: "gtin", value: "08718816064510" }],
+      }).success,
+    ).toBe(false);
   });
 });
 
@@ -225,6 +348,51 @@ describe("SearchQuerySchema", () => {
   it("rejects empty text and malformed deliveryBy dates", () => {
     expect(SearchQuerySchema.safeParse({ text: "" }).success).toBe(false);
     expect(SearchQuerySchema.safeParse({ text: "x", deliveryBy: "20-07-2026" }).success).toBe(false);
+  });
+
+  it("accepts bounded ephemeral buyer context and rejects oversized fields and arrays", () => {
+    const buyerContext = {
+      subject: "my father",
+      intendedUse: "daily commuting",
+      occasion: "birthday",
+      location: "Phoenix, Arizona",
+      ownedItemCompatibility: ["USB-C chargers", "Pixel Buds Pro"],
+    };
+    expect(BuyerContextSchema.parse(buyerContext)).toEqual(buyerContext);
+    expect(SearchQuerySchema.parse({ text: "phone", buyerContext }).buyerContext).toEqual(buyerContext);
+    expect(BuyerContextSchema.safeParse({ ...buyerContext, intendedUse: "x".repeat(501) }).success).toBe(false);
+    expect(
+      BuyerContextSchema.safeParse({
+        ...buyerContext,
+        ownedItemCompatibility: Array.from({ length: 17 }, (_, index) => `item-${index}`),
+      }).success,
+    ).toBe(false);
+  });
+
+  it("accepts bounded named criteria and rejects duplicate IDs and caller-supplied numeric scoring fields", () => {
+    const criteria = [
+      { id: "storage", label: "128GB storage", importance: "required", kind: "attribute", value: "128GB" },
+      {
+        id: "budget",
+        label: "Within budget",
+        importance: "preferred",
+        kind: "max_price",
+        value: { amount: 70000, currency: "EUR" },
+      },
+      { id: "arrival", label: "Arrives soon", importance: "tie_breaker", kind: "delivery_by", value: "2026-09-01" },
+      { id: "repairable", label: "Repairable", importance: "preferred", kind: "ethics", value: "repairable" },
+      { id: "stock", label: "Ready to buy", importance: "required", kind: "availability", value: "in_stock" },
+    ] as const;
+
+    for (const criterion of criteria) expect(DecisionCriterionSchema.parse(criterion)).toEqual(criterion);
+    expect(SearchQuerySchema.parse({ text: "phone", criteria }).criteria).toEqual(criteria);
+    expect(SearchQuerySchema.safeParse({ text: "phone", criteria: [criteria[0], { ...criteria[1], id: "storage" }] }).success).toBe(false);
+    for (const extra of [{ weight: 99 }, { score: 99 }, { componentScore: 99 }]) {
+      expect(SearchQuerySchema.safeParse({ text: "phone", criteria: [{ ...criteria[0], ...extra }] }).success).toBe(false);
+    }
+    expect(
+      SearchQuerySchema.safeParse({ text: "phone", criteria: Array.from({ length: 17 }, (_, index) => ({ ...criteria[0], id: `c-${index}` })) }).success,
+    ).toBe(false);
   });
 });
 
@@ -353,11 +521,14 @@ describe("TrustSignalSchema", () => {
 // ---------------------------------------------------------------------------
 
 const validMandate = {
+  version: 2,
   id: "mandate-7f3a",
   intent: "Buy Fairphone 5 128GB from Example Shop for at most EUR 604.95 incl. shipping",
   constraints: {
     offerId: "offer-1",
     merchantId: "shop.example.com",
+    offerDigest: "a".repeat(64),
+    quantity: 1,
     maxAmount: { amount: 60495, currency: "EUR" },
   },
   issuedAt: "2026-07-04T10:00:00Z",
@@ -371,11 +542,36 @@ const validMandate = {
 };
 
 describe("PurchaseMandateSchema", () => {
-  it("parses an AP2-shaped mandate with intent, constraints, expiry, nonce, signature", () => {
+  it("parses a version-2 mandate with an exact-offer digest and fixed quantity", () => {
     const parsed = PurchaseMandateSchema.parse(validMandate);
+    expect(parsed.version).toBe(2);
+    expect(parsed.constraints.offerDigest).toBe("a".repeat(64));
+    expect(parsed.constraints.quantity).toBe(1);
     expect(parsed.constraints.maxAmount).toEqual({ amount: 60495, currency: "EUR" });
     expect(parsed.signature.algorithm).toBe("ed25519");
     expect(parsed.nonce).toBe("c2f9d4e8a1b34567");
+  });
+
+  it("fails closed on old underbound mandates and non-single quantities", () => {
+    const { version: _version, ...oldMandate } = validMandate;
+    const {
+      offerDigest: _offerDigest,
+      quantity: _quantity,
+      ...oldConstraints
+    } = validMandate.constraints;
+
+    expect(
+      PurchaseMandateSchema.safeParse({ ...oldMandate, constraints: oldConstraints }).success,
+    ).toBe(false);
+    expect(
+      PurchaseMandateSchema.safeParse({ ...validMandate, version: 1 }).success,
+    ).toBe(false);
+    expect(
+      PurchaseMandateSchema.safeParse({
+        ...validMandate,
+        constraints: { ...validMandate.constraints, quantity: 2 },
+      }).success,
+    ).toBe(false);
   });
 
   it("rejects a mandate missing any hard-gate field (expiry, nonce, signature, constraints)", () => {
@@ -421,6 +617,19 @@ describe("PurchaseMandateSchema", () => {
 // ---------------------------------------------------------------------------
 
 describe("StoreErrorSchema", () => {
+  it("preserves a typed non-negative retry delay and rejects invalid delays", () => {
+    expect(StoreErrorSchema.parse({
+      store: "shopify",
+      code: "rate_limited",
+      message: "catalog rate limited",
+      retryable: true,
+      retryAfterMs: 2_000,
+    }).retryAfterMs).toBe(2_000);
+    expect(StoreErrorSchema.safeParse({ store: "shopify", code: "rate_limited", message: "x", retryable: true, retryAfterMs: -1 }).success).toBe(false);
+    expect(StoreErrorSchema.safeParse({ store: "shopify", code: "rate_limited", message: "x", retryable: true, retryAfterMs: Number.POSITIVE_INFINITY }).success).toBe(false);
+    expect(StoreErrorSchema.safeParse({ store: "shopify", code: "rate_limited", message: "x", retryable: true, retryAfterMs: 1.5 }).success).toBe(false);
+  });
+
   it("parses a structured store error", () => {
     const parsed = StoreErrorSchema.parse({
       code: "timeout",

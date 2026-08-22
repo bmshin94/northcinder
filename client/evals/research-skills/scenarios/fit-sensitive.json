@@ -1,0 +1,47 @@
+{
+  "scenarioId": "fit-sensitive",
+  "skill": "product-research",
+  "agentInput": {
+    "scenarioId": "fit-sensitive",
+    "task": "Assess exact-variant fit using only the supplied records. Do not browse, call tools, inspect repository files, or dispatch another agent. Do not transfer results across revision or sizing line.",
+    "buyerRequest": "Will the AlderWorks CarryFrame 38, women's XS/S torso, 2026 revision fit a 15-inch torso and carry 13 kg comfortably?",
+    "subject": "AlderWorks CarryFrame 38, women's XS/S torso, 2026 revision.",
+    "sourceRecords": [
+      { "id": "manual-2026-xs", "type": "official manual", "ownership": "AlderWorks", "record": "Exact 2026 women's XS/S: torso range 14-17 inches; maximum recommended load 12 kg." },
+      { "id": "maker-2026-ml", "type": "manufacturer product page", "ownership": "AlderWorks", "record": "Different 2026 women's M/L: torso range 17-21 inches; maximum load 15 kg." },
+      { "id": "lab-2025-xs", "type": "independent harness/load test", "ownership": "independent lab", "record": "Different 2025 women's XS/S: comfort declined above 10 kg; hip belt slipped on smaller testers." },
+      { "id": "retailer-mixed", "type": "retailer listing", "ownership": "retailer", "record": "Merges 2025 and 2026 reviews and says up to 15 kg without identifying size." },
+      { "id": "owner-2026-xs", "type": "owner reports", "ownership": "individual owners", "record": "Two 2026 XS/S reports at 14-15 inch torsos: shoulder lift failed at 12 kg for one; acceptable fit at 9 kg for one." }
+    ],
+    "outputContract": {
+      "format": "json_only",
+      "instruction": "Write one raw JSON object only, with no Markdown fence or surrounding status envelope. Copy scenarioId and requiredSubjectIdentity exactly. Every factual claim must cite source IDs and classify the source relationship and use.",
+      "requiredSubjectIdentity": "AlderWorks CarryFrame 38, women's XS/S torso, 2026 revision",
+      "requiredTopLevelFields": ["scenarioId", "subjectIdentity", "selectedSourceIds", "claims", "unknowns", "conflicts", "counterevidenceSourceIds", "checklistItemIds", "provisional"],
+      "claimFields": { "claim": "non-empty string", "subjectIdentity": "exact requiredSubjectIdentity", "sourceIds": "non-empty array of supplied source IDs", "sourceRelationship": "primary | independent | owner | commercial | unknown", "sourceUse": "subject_evidence | counterevidence | commercial_claim | context_only", "confidence": "high | medium | low | unverified" },
+      "conflictFields": { "description": "non-empty string", "sourceIds": "non-empty array of supplied source IDs" },
+      "arrayFields": { "selectedSourceIds": "source IDs actually used", "unknowns": "plain-language unknowns", "conflicts": "conflict objects", "counterevidenceSourceIds": "source IDs used for downside or contrary evidence", "checklistItemIds": "canonical skill checklist IDs completed or kept open" },
+      "provisional": "boolean"
+    }
+  },
+  "rubric": {
+    "expectedSubjectIdentity": "AlderWorks CarryFrame 38, women's XS/S torso, 2026 revision",
+    "sources": {
+      "manual-2026-xs": { "relationship": "primary" },
+      "maker-2026-ml": { "relationship": "primary" },
+      "lab-2025-xs": { "relationship": "independent" },
+      "retailer-mixed": { "relationship": "commercial" },
+      "owner-2026-xs": { "relationship": "owner" }
+    },
+    "requiredSelectedSourceIds": ["manual-2026-xs", "lab-2025-xs", "retailer-mixed", "owner-2026-xs"],
+    "forbiddenSubjectEvidenceSourceIds": ["maker-2026-ml", "lab-2025-xs", "retailer-mixed"],
+    "forbiddenIndependentSourceIds": ["manual-2026-xs", "maker-2026-ml", "retailer-mixed", "owner-2026-xs"],
+    "requiredCounterevidenceSourceIds": ["lab-2025-xs", "owner-2026-xs"],
+    "requiredConflictSourceGroups": [["manual-2026-xs", "retailer-mixed"]],
+    "minimumUnknowns": 1,
+    "requiredChecklistItemIds": ["product.identity", "product.intended-use", "product.primary-facts", "product.independent-evidence", "product.fit-compatibility", "product.failure-modes", "product.counterevidence", "product.commercial-claims", "product.unknowns", "product.stop-receipt"],
+    "materialDownside": "The exact manual caps the XS/S at 12 kg, below the buyer's 13 kg load; exact-revision comfort evidence at 13 kg is absent.",
+    "stopCondition": "The buyer's required load exceeds the exact manual's recommendation and exact-2026 independent comfort evidence is unavailable.",
+    "mustBeProvisional": true
+  }
+}

@@ -79,6 +79,8 @@ runConformanceSuite(() => fixtureAdapter(), {
 
 describe("amazon adapter — §3A honesty gates", () => {
   it("HONEST USER-AGENT: identifies as an automated agent without inventing a public coordinate", () => {
+    expect(AGENT_USER_AGENT).toContain("NorthCinderAgent/0.2");
+    expect(AGENT_USER_AGENT).not.toContain("NorthCinderAgent/0.1");
     expect(AGENT_USER_AGENT).toMatch(/northcinder/i);
     expect(AGENT_USER_AGENT).toMatch(/agent/i);
     expect(AGENT_USER_AGENT).toContain("automated shopping agent");

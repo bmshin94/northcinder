@@ -170,14 +170,14 @@ describe("search_products — client-side re-rank verification", () => {
     expect(structured.rankingDivergences![0]).toEqual({
       kind: "order_mismatch",
       position: 1,
-      expected: { offerKey: "ebay:cheap", score: ranked[0]!.score },
-      actual: { offerKey: "ebay:paid", score: ranked[2]!.score },
+      expected: { offerKey: '["ebay","cheap"]', score: ranked[0]!.score },
+      actual: { offerKey: '["ebay","paid"]', score: ranked[2]!.score },
     });
 
     // Loud in the human-readable text too.
     const text = (result.content as Array<{ text: string }>)[0]!.text;
     expect(text).toContain(RANKING_TAMPER_WARNING);
-    expect(text).toContain("ebay:paid");
+    expect(text).toContain('["ebay","paid"]');
 
     // And in the user-auditable trail, with the exact divergence.
     const search = auditSearchLine(auditPath);

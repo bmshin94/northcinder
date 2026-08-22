@@ -55,6 +55,9 @@ export function bundleMainEntry(clientDir = CLIENT_DIR) {
     platform: "node",
     format: "esm",
     target: "node20",
+    banner: {
+      js: 'import { createRequire as __northcinderCreateRequire } from "node:module"; const require = globalThis.require ??= __northcinderCreateRequire(import.meta.url);',
+    },
     legalComments: "none",
     logLevel: "silent",
   });
@@ -69,9 +72,25 @@ export function buildMcpbEntries(clientDir = CLIENT_DIR) {
     throw new Error(`dist/ not found at ${distDir} — run \`pnpm --filter @northcinder/client build\` first`);
   }
   const bundlePath = bundleMainEntry(clientDir);
+  const productSkillPath = join(clientDir, "research-skills", "product-research", "SKILL.md");
+  const sellerSkillPath = join(clientDir, "research-skills", "seller-research", "SKILL.md");
+  let productSkill;
+  let sellerSkill;
+  try {
+    productSkill = readFileSync(productSkillPath);
+  } catch (error) {
+    throw new Error(`cannot package canonical product-research/SKILL.md`, { cause: error });
+  }
+  try {
+    sellerSkill = readFileSync(sellerSkillPath);
+  } catch (error) {
+    throw new Error(`cannot package canonical seller-research/SKILL.md`, { cause: error });
+  }
   const entries = [
     { name: "manifest.json", data: Buffer.from(JSON.stringify(manifest, null, 2) + "\n") },
     { name: `server/${relative(distDir, bundlePath).split("\\").join("/")}`, data: readFileSync(bundlePath) },
+    { name: "research-skills/product-research/SKILL.md", data: productSkill },
+    { name: "research-skills/seller-research/SKILL.md", data: sellerSkill },
   ];
   return { manifest, entries };
 }

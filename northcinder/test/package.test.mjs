@@ -11,7 +11,7 @@ const packageReadme = readFileSync(new URL("../README.md", import.meta.url), "ut
 const rootReadme = readFileSync(new URL("../../README.md", import.meta.url), "utf8");
 
 assert.equal(manifest.name, "northcinder", "public npm coordinate must match the NorthCinder CLI name");
-assert.equal(manifest.version, "0.1.2", "NorthCinder must continue the public release sequence");
+assert.equal(manifest.version, "0.2.0", "NorthCinder public package must use the allocated version");
 assert.deepEqual(manifest.bin, { northcinder: "bin/northcinder.js" }, "package and executable must share the canonical slug");
 for (const [label, readme] of [["packed README", packageReadme], ["root README", rootReadme]]) {
   assert.match(readme, /npx northcinder init/, `${label} must use the public npm coordinate`);
@@ -34,3 +34,13 @@ const files = new Set(packed.files.map((file) => file.path));
 
 assert.equal(files.has("README.md"), true, "published package must include README.md");
 assert.equal(files.has("LICENSE"), true, "published package must include LICENSE");
+assert.equal(
+  files.has("research-skills/product-research/SKILL.md"),
+  true,
+  "published launcher package must include canonical product research",
+);
+assert.equal(
+  files.has("research-skills/seller-research/SKILL.md"),
+  true,
+  "published launcher package must include canonical seller research",
+);

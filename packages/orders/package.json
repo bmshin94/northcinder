@@ -1,7 +1,7 @@
 {
   "name": "@northcinder/orders",
-  "version": "0.1.0",
-  "description": "NorthCinder order graph: merges checkout order records with deterministically parsed order/shipping/return emails — no LLM parsing anywhere (determinism law). Deterministic per-merchant/per-format parser plugins + generic fallback; unparseable mail lands as a structured unparsed record, never dropped. Return-window ICS export + reminder (reuses @northcinder/watches Notifier).",
+  "version": "0.2.0",
+  "description": "NorthCinder local order graph with deterministic mail parsing, fail-closed unattended IMAP, explicit local import, buyer-confirmed outcomes, and notify-only reminders",
   "license": "MIT",
   "type": "module",
   "engines": { "node": ">=20" },

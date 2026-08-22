@@ -6,7 +6,9 @@ import { fetchWithBudget } from "@northcinder/adapter-kit";
  */
 export type McpCallResult =
   | { ok: true; payload: unknown }
-  | { ok: false; kind: "timeout" | "network" | "http" | "rpc" | "invalid_response"; detail: string };
+  | { ok: false; kind: "timeout" | "network" | "invalid_response"; detail: string }
+  | { ok: false; kind: "rpc"; detail: string; rpcCode?: string | number }
+  | { ok: false; kind: "http"; detail: string; status: number; retryAfterMs?: number };
 
 export interface McpCallOptions {
   timeoutMs: number;
@@ -48,7 +50,13 @@ export async function callMcpTool(
     return { ok: false, kind: "network", detail: `network failure calling ${tool}` };
   }
   if (result.status !== 200) {
-    return { ok: false, kind: "http", detail: `HTTP ${result.status} from ${new URL(url).host}` };
+    return {
+      ok: false,
+      kind: "http",
+      detail: `HTTP ${result.status} from ${new URL(url).host}`,
+      status: result.status,
+      ...(result.retryAfterMs !== undefined ? { retryAfterMs: result.retryAfterMs } : {}),
+    };
   }
   let envelope: unknown;
   try {
@@ -57,13 +65,26 @@ export async function callMcpTool(
     return { ok: false, kind: "invalid_response", detail: "response is not JSON" };
   }
   const rpc = envelope as {
-    error?: { message?: string };
+    error?: { code?: unknown; message?: string };
     result?: { isError?: boolean; structuredContent?: unknown; content?: Array<{ type?: string; text?: string }> };
   };
-  if (rpc.error) return { ok: false, kind: "rpc", detail: rpc.error.message ?? "JSON-RPC error" };
-  // UCP endpoints (live-verified 2026-07-11) return the payload as
-  // result.structuredContent; the legacy storefront /api/mcp tools return it
-  // as JSON inside a text content part. Accept both.
+  if (rpc.error) {
+    const code = rpc.error.code;
+    const rpcCode =
+      typeof code === "number" && Number.isFinite(code)
+        ? code
+        : typeof code === "string" && /^[a-zA-Z0-9_.:-]{1,64}$/.test(code)
+          ? code
+          : undefined;
+    return {
+      ok: false,
+      kind: "rpc",
+      detail: "catalog RPC request failed",
+      ...(rpcCode !== undefined ? { rpcCode } : {}),
+    };
+  }
+  // UCP endpoints return the payload as result.structuredContent. Historical
+  // offline fixtures may still carry JSON in a text content part.
   if (rpc.result?.structuredContent !== undefined && rpc.result.isError !== true) {
     return { ok: true, payload: rpc.result.structuredContent };
   }
@@ -71,7 +92,7 @@ export async function callMcpTool(
   if (typeof text !== "string") {
     return { ok: false, kind: "invalid_response", detail: "MCP result carries no structured or text content" };
   }
-  if (rpc.result?.isError) return { ok: false, kind: "rpc", detail: text.slice(0, 300) };
+  if (rpc.result?.isError) return { ok: false, kind: "rpc", detail: "catalog tool returned an error" };
   try {
     return { ok: true, payload: JSON.parse(text) };
   } catch {

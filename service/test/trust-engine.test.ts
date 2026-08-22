@@ -120,6 +120,20 @@ describe("signal trust engine — cache-first, budgeted, deduped", () => {
     expect(refreshProbes).toHaveBeenCalledTimes(1);
   });
 
+  it("shares one normalized-domain refresh across seller identities without collapsing returned merchant ids", async () => {
+    const store = createTrustCorpusStore({ dir: tempDir() });
+    const refreshProbes = vi.fn<RefreshProbes>(async () => ({ inputs: { domainAgeDays: 5000, popularityRank: 900 }, evidence: [] }));
+    const engine = createSignalTrustProvider({ store, seed: seed(), refreshProbes, budgetMs: 500, now: () => NOW });
+    const [one, two] = await Promise.all([
+      engine.trustSignal(merchant("Market.Example.", "seller-1")),
+      engine.trustSignal(merchant("market.example", "seller-2")),
+    ]);
+    expect(refreshProbes).toHaveBeenCalledTimes(1);
+    expect(one.merchantId).toBe("seller-1");
+    expect(two.merchantId).toBe("seller-2");
+    expect(store.get("market.example")).toBeDefined();
+  });
+
   it("stale record serves best-available + a refreshing line while re-fetching", async () => {
     const dir = tempDir();
     const store = createTrustCorpusStore({ dir });

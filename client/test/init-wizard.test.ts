@@ -1,14 +1,12 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   InitAnswersError,
   buildMcpHostSnippet,
+  materializeOwnedLocalEngineEnv,
   resolveInitAnswers,
-  buildServiceCommand,
-  quotePosixShell,
   runInit,
   type InitAnswers,
 } from "../src/init-wizard.js";
@@ -35,6 +33,18 @@ function baseAnswers(overrides: Partial<InitAnswers> = {}): InitAnswers {
   };
 }
 
+function withXdgConfigHome<T>(value: string | undefined, run: () => T): T {
+  const previous = process.env.XDG_CONFIG_HOME;
+  if (value === undefined) delete process.env.XDG_CONFIG_HOME;
+  else process.env.XDG_CONFIG_HOME = value;
+  try {
+    return run();
+  } finally {
+    if (previous === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = previous;
+  }
+}
+
 describe("resolveInitAnswers", () => {
   it("rejects a missing engine URL in self-hosted mode", () => {
     expect(() => resolveInitAnswers(baseAnswers({ serviceUrl: undefined }))).toThrow(InitAnswersError);
@@ -56,22 +66,58 @@ describe("resolveInitAnswers", () => {
     }
   });
 
-  it("rejects a short client key", () => {
+  it("requires HTTPS for a self-hosted engine except explicit loopback HTTP", () => {
+    expect(() => resolveInitAnswers(baseAnswers({ serviceUrl: "http://engine.example" }))).toThrow(/HTTPS|loopback/i);
+    expect(() => resolveInitAnswers(baseAnswers({ serviceUrl: "http://localhost:8790" }))).not.toThrow();
+    expect(() => resolveInitAnswers(baseAnswers({ serviceUrl: "https://engine.example/base" }))).not.toThrow();
+    expect(() => resolveInitAnswers(baseAnswers({ serviceUrl: "https://engine.example?other=1" }))).toThrow(/query/i);
+    expect(() => resolveInitAnswers(baseAnswers({ serviceUrl: "https://engine.example#other" }))).toThrow(/fragment/i);
+  });
+
+  it("rejects a short client key in self-hosted mode", () => {
     expect(() => resolveInitAnswers(baseAnswers({ clientKey: "short" }))).toThrow(/16 characters/);
   });
 
-  it("allows local mode with no legacy Shopify shops", () => {
-    const record = resolveInitAnswers(baseAnswers({ mode: "local", serviceUrl: undefined, shops: [] }));
-    expect(record.serviceUrl).toBe("http://127.0.0.1:8790");
+  it("accepts local mode without a client key and omits remote credentials from the record", () => {
+    const record = resolveInitAnswers(
+      baseAnswers({ mode: "local", serviceUrl: undefined, clientKey: undefined, shops: [] }),
+    );
+    expect(record).not.toHaveProperty("serviceUrl");
+    expect(record).not.toHaveProperty("clientKey");
     expect(record.shops).toEqual([]);
   });
 
-  it("fills in the loopback service URL for local mode", () => {
+  it("rejects local storefront hosts without their required UCP profile before an init record can be written", () => {
+    const answers = baseAnswers({ mode: "local", serviceUrl: undefined, clientKey: undefined, shops: ["www.allbirds.com"] });
+    expect(() => runInit(answers)).toThrow(/shopify-profile-url/i);
+    expect(() => readFileSync(join(answers.configDir, "northcinder-init.json"), "utf8")).toThrow();
+  });
+
+  it("rejects malformed local Shopify hosts without echoing the host", () => {
+    const malformed = "https://operator-secret.invalid/path";
+    try {
+      runInit(baseAnswers({
+        mode: "local", serviceUrl: undefined, clientKey: undefined, shops: [malformed],
+        shopifyProfileUrl: "https://agent.example/ucp-profile.json",
+      }));
+      expect.unreachable("expected invalid host");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      expect(message).toMatch(/shop/i);
+      expect(message).not.toContain(malformed);
+    }
+  });
+
+  it("persists a valid Shopify UCP profile URL for local owned-engine configuration", () => {
     const record = resolveInitAnswers(
-      baseAnswers({ mode: "local", serviceUrl: undefined, shops: ["www.allbirds.com"] }),
+      baseAnswers({
+        mode: "local",
+        serviceUrl: undefined,
+        clientKey: undefined,
+        shopifyProfileUrl: "https://agent.example/ucp-profile.json",
+      }),
     );
-    expect(record.serviceUrl).toBe("http://127.0.0.1:8790");
-    expect(record.shops).toEqual(["www.allbirds.com"]);
+    expect(record.shopifyProfileUrl).toBe("https://agent.example/ucp-profile.json");
   });
 
   it("omits ntfyTopic when not provided", () => {
@@ -81,45 +127,120 @@ describe("resolveInitAnswers", () => {
   });
 });
 
-describe("shell-facing init instructions", () => {
-  it("single-quotes every user-controlled value so command substitution is inert", () => {
-    expect(quotePosixShell("a'$(touch /tmp/pwned)` value")).toBe("'a'\"'\"'$(touch /tmp/pwned)` value'");
-    const answers = baseAnswers({
-      mode: "local",
-      serviceUrl: undefined,
-      clientKey: "0123456789abcdef$(touch /tmp/pwned)",
-      shops: ["shop.example;touch /tmp/pwned"],
-      configDir: "/tmp/a path $(touch /tmp/pwned)",
-      serverEntry: "/tmp/launcher path/northcinder",
-      serviceEntry: "/tmp/launcher path/northcinder",
-    });
-    const record = resolveInitAnswers(answers);
-    expect(buildServiceCommand(answers, record)).toContain("NORTHCINDER_API_KEYS='me:0123456789abcdef$(touch /tmp/pwned)'");
-    expect(buildServiceCommand(answers, record)).toContain("SHOPIFY_MCP_SHOPS='shop.example;touch /tmp/pwned'");
-    expect(buildServiceCommand(answers, record)).toContain("node '/tmp/launcher path/northcinder' service");
-    const sentinel = join(tmpConfigDir(), "must-not-exist");
-    const unsafeAnswers = { ...answers, clientKey: `0123456789abcdef$(touch ${sentinel})` };
-    const unsafeRecord = resolveInitAnswers(unsafeAnswers);
-    try {
-      execFileSync("/bin/sh", ["-c", buildServiceCommand(unsafeAnswers, unsafeRecord)!], { stdio: "ignore" });
-    } catch {
-      // The deliberately nonexistent launcher fails; the security assertion is
-      // that parsing it never evaluates the injected command substitution.
-    }
-    expect(existsSync(sentinel)).toBe(false);
-  });
-});
-
 describe("buildMcpHostSnippet", () => {
-  it("produces a valid mcpServers JSON block keyed by the brand name", () => {
+  it("produces an explicit self-hosted mcpServers environment with URL and key", () => {
     const answers = baseAnswers();
     const record = resolveInitAnswers(answers);
     const snippet = buildMcpHostSnippet(answers, record);
     const parsed = JSON.parse(snippet);
     expect(parsed.mcpServers.northcinder.command).toBe("node");
     expect(parsed.mcpServers.northcinder.args).toEqual(["/abs/path/to/client/dist/main.js"]);
+    expect(parsed.mcpServers.northcinder.env.NORTHCINDER_MODE).toBe("self-hosted");
     expect(parsed.mcpServers.northcinder.env.NORTHCINDER_SERVICE_URL).toBe("http://127.0.0.1:8790");
     expect(parsed.mcpServers.northcinder.env.NORTHCINDER_CLIENT_KEY).toBe("a-key-that-is-16chars-plus");
+  });
+
+  it("omits XDG_CONFIG_HOME from a keyless local environment when init did not receive it", () => {
+    withXdgConfigHome(undefined, () => {
+      const answers = baseAnswers({ mode: "local", serviceUrl: undefined, clientKey: undefined });
+      const parsed = JSON.parse(buildMcpHostSnippet(answers, resolveInitAnswers(answers)));
+      expect(parsed.mcpServers.northcinder.env).toEqual({
+        NORTHCINDER_MODE: "local",
+        NORTHCINDER_CONFIG_DIR: answers.configDir,
+      });
+    });
+  });
+
+  it("retains XDG_CONFIG_HOME in a keyless local environment when init received it", () => {
+    withXdgConfigHome("/tmp/northcinder-xdg-config", () => {
+      const answers = baseAnswers({ mode: "local", serviceUrl: undefined, clientKey: undefined });
+      const parsed = JSON.parse(buildMcpHostSnippet(answers, resolveInitAnswers(answers)));
+      expect(parsed.mcpServers.northcinder.env).toEqual({
+        NORTHCINDER_MODE: "local",
+        NORTHCINDER_CONFIG_DIR: answers.configDir,
+        XDG_CONFIG_HOME: "/tmp/northcinder-xdg-config",
+      });
+    });
+  });
+});
+
+describe("materializeOwnedLocalEngineEnv", () => {
+  it("materializes persisted local Shopify UCP shops and profile only into the owned engine environment", () => {
+    const answers = baseAnswers({
+      mode: "local",
+      serviceUrl: undefined,
+      clientKey: undefined,
+      shops: ["www.allbirds.com", "www.rothys.com"],
+      shopifyProfileUrl: "https://agent.example/ucp-profile.json",
+    });
+    const result = runInit(answers);
+
+    expect(materializeOwnedLocalEngineEnv({ HOME: answers.configDir, NORTHCINDER_CONFIG_DIR: answers.configDir })).toEqual({
+      HOME: answers.configDir,
+      NORTHCINDER_CONFIG_DIR: answers.configDir,
+      SHOPIFY_MCP_SHOPS: "www.allbirds.com,www.rothys.com",
+      SHOPIFY_UCP_AGENT_PROFILE_URL: "https://agent.example/ucp-profile.json",
+    });
+    expect(JSON.parse(result.mcpHostSnippet).mcpServers.northcinder.env).not.toHaveProperty("SHOPIFY_MCP_SHOPS");
+  });
+
+  it("materializes a persisted Shopify UCP profile only into the owned engine environment", () => {
+    const answers = baseAnswers({
+      mode: "local",
+      serviceUrl: undefined,
+      clientKey: undefined,
+      shopifyProfileUrl: "https://agent.example/ucp-profile.json",
+    });
+    runInit(answers);
+    expect(materializeOwnedLocalEngineEnv({ HOME: answers.configDir, NORTHCINDER_CONFIG_DIR: answers.configDir }).SHOPIFY_UCP_AGENT_PROFILE_URL)
+      .toBe("https://agent.example/ucp-profile.json");
+  });
+
+  it("preserves an explicit Shopify environment value instead of replacing it from the record", () => {
+    const answers = baseAnswers({
+      mode: "local",
+      serviceUrl: undefined,
+      clientKey: undefined,
+      shops: ["record.example"],
+      shopifyProfileUrl: "https://agent.example/ucp-profile.json",
+    });
+    runInit(answers);
+
+    expect(materializeOwnedLocalEngineEnv({
+      HOME: answers.configDir,
+      NORTHCINDER_CONFIG_DIR: answers.configDir,
+      SHOPIFY_MCP_SHOPS: "explicit.example",
+    }).SHOPIFY_MCP_SHOPS).toBe("explicit.example");
+  });
+
+  it("leaves an uninitialized local environment unconfigured", () => {
+    const configDir = tmpConfigDir();
+    expect(materializeOwnedLocalEngineEnv({ HOME: configDir, NORTHCINDER_CONFIG_DIR: configDir })).toEqual({
+      HOME: configDir,
+      NORTHCINDER_CONFIG_DIR: configDir,
+    });
+  });
+
+  it("rejects a malformed local record without leaking its path or content", () => {
+    const configDir = tmpConfigDir();
+    const secret = "operator-secret-shop-value";
+    writeFileSync(join(configDir, "northcinder-init.json"), JSON.stringify({
+      brand: "NorthCinder",
+      mode: "local",
+      shops: secret,
+      configDir,
+      createdAt: new Date().toISOString(),
+    }));
+
+    try {
+      materializeOwnedLocalEngineEnv({ HOME: configDir, NORTHCINDER_CONFIG_DIR: configDir });
+      expect.unreachable("expected malformed local record rejection");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      expect(message).toMatch(/local init record is invalid/i);
+      expect(message).not.toContain(configDir);
+      expect(message).not.toContain(secret);
+    }
   });
 });
 
@@ -138,44 +259,10 @@ describe("runInit", () => {
     const configDir = tmpConfigDir();
     expect(() => runInit(baseAnswers({ configDir, clientKey: "short" }))).toThrow(InitAnswersError);
   });
-});
 
-describe("buildServiceCommand — local mode prints how to start the buyer-run engine", () => {
-  it("local mode without shops omits the legacy Shopify environment variable", () => {
-    const answers = baseAnswers({
-      mode: "local",
-      serviceUrl: undefined,
-      shops: [],
-      serverEntry: "/abs/path/to/northcinder.js",
-      serviceEntry: "/abs/path/to/northcinder.js",
-    });
-    const record = resolveInitAnswers(answers);
-    const cmd = buildServiceCommand(answers, record);
-    expect(cmd).toContain("NORTHCINDER_API_KEYS='me:a-key-that-is-16chars-plus'");
-    expect(cmd).not.toContain("SHOPIFY_MCP_SHOPS");
-    expect(cmd).toContain("node '/abs/path/to/northcinder.js' service");
-  });
-
-  it("local mode: returns a ready-to-paste service launch command with the key and shops", () => {
-    const answers = baseAnswers({ mode: "local", serviceUrl: undefined, shops: ["www.allbirds.com", "www.rothys.com"], serverEntry: "/abs/path/to/northcinder.js", serviceEntry: "/abs/path/to/northcinder.js" });
-    const record = resolveInitAnswers(answers);
-    const cmd = buildServiceCommand(answers, record);
-    expect(cmd).not.toBeUndefined();
-    expect(cmd).toContain("NORTHCINDER_API_KEYS='me:a-key-that-is-16chars-plus'");
-    expect(cmd).toContain("SHOPIFY_MCP_SHOPS='www.allbirds.com,www.rothys.com'");
-    expect(cmd).toContain("node ");
-    expect(cmd).toContain("node '/abs/path/to/northcinder.js' service");
-  });
-
-  it("self-hosted mode returns no local launch command because the buyer runs it separately", () => {
-    const answers = baseAnswers();
-    const record = resolveInitAnswers(answers);
-    expect(buildServiceCommand(answers, record)).toBeUndefined();
-  });
-
-  it("runInit exposes serviceCommand in the result for local mode", () => {
-    const answers = baseAnswers({ mode: "local", serviceUrl: undefined, shops: ["www.allbirds.com"], serverEntry: "/abs/path/to/northcinder.js", serviceEntry: "/abs/path/to/northcinder.js" });
+  it("returns no local service command", () => {
+    const answers = baseAnswers({ mode: "local", serviceUrl: undefined, clientKey: undefined });
     const result = runInit(answers);
-    expect(result.serviceCommand).toContain("node '/abs/path/to/northcinder.js' service");
+    expect(result).not.toHaveProperty("serviceCommand");
   });
 });

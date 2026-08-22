@@ -65,15 +65,15 @@ const schemas = articleSchemas(page, breadcrumbs, faqs, howTo ? [howTo] : []);
 
   <p>
     The initializer asks for the local operating mode and store connections you want to prepare. It writes
-    owner-only configuration under your chosen config directory, creates the local client key, and prints the
-    buyer-run engine command plus generic MCP host configuration. The public package does not register a
-    background service or add a NorthCinder-operated network dependency.
+    owner-only configuration under your chosen config directory. Ordinary local mode is keyless. The initializer
+    prints one MCP-host entry. That entry starts the client and owned engine in one process on ephemeral loopback.
+    There is no fixed port or second service command.
   </p>
 
   <h2>2. Add the generated MCP entry</h2>
   <p>
     Copy the generated entry into the MCP configuration used by your AI app. Keep the command and environment
-    values together. Do not paste the local client key into an issue, screenshot, chat, or repository. Restart
+    values together. Local setup needs no key. A separately self-hosted engine uses buyer-generated keys. Restart
     or reload the AI app according to its own MCP instructions, then confirm that the NorthCinder tools appear.
   </p>
 
@@ -113,7 +113,7 @@ Explain why the winner ranked first and list the options ruled out.</code></pre>
     If the tools do not appear, first check the Node.js version and the command copied into the AI app. Run
     <code>npx northcinder --version</code> in the same environment to confirm the public launcher resolves.
     Then inspect the AI app's local MCP logs for a sanitized startup error. Never post config files without
-    removing local keys, approval URLs, store credentials, browser-profile paths, and audit data.
+    removing approval URLs, store credentials, browser-profile paths, and audit data.
   </p>
   <p>
     Re-run the initializer when you intentionally want a new configuration. Preserve an existing config

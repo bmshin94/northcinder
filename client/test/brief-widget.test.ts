@@ -63,6 +63,11 @@ const FIXTURE_BRIEF: BuyersBrief = {
     { store: "etsy", status: "not_configured", offerCount: 0, detail: "not_configured: ETSY_API_KEY not set" },
   ],
   offersConsidered: 3,
+  decisionSummary: [
+    { role: "top_fit", sourceStore: "ebay", offerId: "o1", roleReason: "Best fit for the stated criteria" },
+    { role: "lower_risk", sourceStore: "ebay", offerId: "o3", roleReason: "Alternative tradeoff" },
+  ],
+  unresolvedResearchQuestions: [],
 };
 
 /** Run the EXACT render code that ships inside the widget, headlessly. */
@@ -71,9 +76,47 @@ function renderWithWidgetCode(
   localTrustEvidence?: Record<string, Array<{ source: string; detail: string }>>,
   localTrustEvidenceKeys?: Record<string, string>,
 ): string {
-  const sandbox: Record<string, unknown> = {};
+  const sandbox: Record<string, unknown> = { URL };
   runInNewContext(`${WIDGET_RENDER_JS}\nthis.renderBuyersBrief = renderBuyersBrief;`, sandbox);
   return (sandbox.renderBuyersBrief as (b: BuyersBrief, l?: unknown, k?: unknown) => string)(brief, localTrustEvidence, localTrustEvidenceKeys);
+}
+
+/** A five-finalist brief proves the default view follows Task 1's role selection,
+ * rather than silently treating ranking order as a second selector. */
+function progressiveBrief(): BuyersBrief {
+  const base = FIXTURE_BRIEF.finalists[0]!;
+  const finalists = [1, 2, 3, 4, 5].map((rank) => ({
+    ...base,
+    rank,
+    offerId: `progressive-${rank}`,
+    sourceStore: `store-${rank}`,
+    title: `Finalist ${rank}`,
+    url: `https://store-${rank}.example/product`,
+    imageUrl: rank === 1 ? "https://store-1.example/product.jpg" : undefined,
+    productIdentity: rank === 1 ? { brand: "North", model: "Runner", variant: "black / EU 43" } : undefined,
+    landedCost: rank === 1 ? { components: [{ kind: "item_price", amount: { amount: 10500, currency: "USD" } }], knownTotal: { amount: 10500, currency: "USD" }, unknownComponents: [], completeness: "complete" as const } : undefined,
+    sellerState: rank === 1 ? "trusted" as const : "unknown" as const,
+    freshness: rank === 1 ? { status: "known" as const, observedAt: "2026-08-20T10:00:00.000Z" } : { status: "unknown" as const },
+    verificationState: rank === 1 ? "merchant_verified" as const : "agent_observed" as const,
+    decisionStatus: rank === 1 ? "ready" as const : "provisional" as const,
+    importantUnknowns: rank === 1 ? [] : ["Exact variant remains unverified"],
+    decisiveDownside: rank === 1 ? "Higher initial price than the budget alternative" : "Evidence remains incomplete",
+    rawReasons: [{ kind: "criterion_match", criterion: "material", detail: "Matches wool requirement" }],
+    whyThis: ["Matches the material requirement"],
+    tradeoffs: [{ dimension: "price" as const, detail: "Higher price than the lowest finalist" }],
+    provenance: { price: { source: "https://store-1.example/source" } },
+  }));
+  return {
+    ...FIXTURE_BRIEF,
+    finalists,
+    offersConsidered: 5,
+    decisionSummary: [
+      { role: "top_fit", sourceStore: "store-1", offerId: "progressive-1", roleReason: "Best fit for the stated criteria" },
+      { role: "lower_risk", sourceStore: "store-2", offerId: "progressive-2", roleReason: "Safer evidence profile" },
+      { role: "budget_or_different", sourceStore: "store-3", offerId: "progressive-3", roleReason: "Lower price with a tradeoff" },
+    ],
+    unresolvedResearchQuestions: ["Confirm the exact variant before buying."],
+  };
 }
 
 function bridgeHarness(referrer: string, toolOutput?: unknown) {
@@ -140,7 +183,7 @@ describe("buyer's-brief widget — headless check (SEP-1865 resource)", () => {
     expect(html).toContain("price: lowest price: 9800 USD");
     // Sponsored badge on the sponsored finalist only.
     expect(html.split(WIDGET_SPONSORED_BADGE)).toHaveLength(2);
-    expect(html).toContain('<section class="finalists" aria-label="Finalists">');
+    expect(html).toContain('<section class="finalists decision-summary" aria-label="Decision summary">');
     expect(html).toContain('<article class="frow is-verified">');
     expect(html).toContain("source for price");
   });
@@ -218,6 +261,94 @@ describe("widget URL hardening regression", () => {
   });
 });
 
+describe("widget progressive decision surface", () => {
+  it("defaults to at most three role-labelled candidates and keeps the other finalists in native details", () => {
+    const html = renderWithWidgetCode(progressiveBrief());
+    expect(html).toContain('class="finalists decision-summary"');
+    expect(html).toContain("TOP FIT");
+    expect(html).toContain("LOWER RISK");
+    expect(html).toContain("BUDGET OR DIFFERENT");
+    expect(html).toContain("Finalist 1");
+    expect(html).toContain("Finalist 3");
+    expect(html).toContain('<details class="more-finalists"><summary>More finalists (2)</summary>');
+    expect(html.indexOf("Finalist 4")).toBeGreaterThan(html.indexOf("More finalists (2)"));
+    expect(html).toContain("Details and provenance");
+  });
+
+  it("renders decision facts, safe image/source links, explicit unknowns, and no duplicate ids", () => {
+    const html = renderWithWidgetCode(progressiveBrief());
+    expect(html).toContain("<dt>original rank</dt><dd>1</dd>");
+    expect(html).toContain("black / EU 43");
+    expect(html).toContain("105.00 USD complete");
+    expect(html).toContain("Higher initial price than the budget alternative");
+    expect(html).toContain("Exact variant remains unverified");
+    expect(html).toContain("Raw reasons");
+    expect(html).not.toContain('src="https://store-1.example/product.jpg"');
+    expect(html).toContain('href="https://store-1.example/product.jpg"');
+    expect(html).toContain("Open image for Finalist 1");
+    expect(html).toContain('aria-label="Open image for Finalist 1"');
+    expect(html).toContain('href="https://store-1.example/source"');
+    const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map((match) => match[1]!);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("keeps the first ranking reason visible before its native details disclosure", () => {
+    const html = renderWithWidgetCode(progressiveBrief());
+    const mainReason = "Matches the material requirement";
+    expect(html.indexOf(mainReason)).toBeGreaterThan(-1);
+    expect(html.indexOf(mainReason)).toBeLessThan(html.indexOf("Details and provenance"));
+  });
+
+  it("does not make unsafe image or provenance schemes executable", () => {
+    const brief = progressiveBrief();
+    brief.finalists[0] = { ...brief.finalists[0]!, imageUrl: "javascript:alert(1)", provenance: { source: { source: "data:text/html,boom" } } };
+    const html = renderWithWidgetCode(brief);
+    expect(html).not.toContain('src="javascript:');
+    expect(html).not.toContain('href="data:');
+  });
+
+  it.each([
+    "https://cdn.shopify.com/product.jpg",
+    "https://i.ebayimg.com/product.jpg",
+    "https://i.sandbox.ebayimg.com/product.jpg",
+    "https://i.etsystatic.com/product.jpg",
+    "https://m.media-amazon.com/product.jpg",
+  ])("automatically renders only an exact built-in adapter image origin: %s", (imageUrl) => {
+    const brief = progressiveBrief();
+    brief.finalists[0] = { ...brief.finalists[0]!, imageUrl };
+    const html = renderWithWidgetCode(brief);
+    expect(html).toContain(`<img class="f-image" src="${imageUrl}"`);
+    expect(html).toContain('loading="lazy"');
+    expect(html).toContain('referrerpolicy="no-referrer"');
+  });
+
+  it.each([
+    "http://cdn.shopify.com/product.jpg",
+    "https://user:password@cdn.shopify.com/product.jpg",
+    "not a URL",
+  ])("renders no automatic request or user-opened link for an unsafe image URL: %s", (imageUrl) => {
+    const brief = progressiveBrief();
+    brief.finalists[0] = { ...brief.finalists[0]!, imageUrl };
+    const html = renderWithWidgetCode(brief);
+    expect(html).not.toContain(`<img class="f-image"`);
+    expect(html).not.toContain(`href="${imageUrl}"`);
+  });
+
+  it("keeps malformed and explicit empty decision states honest", () => {
+    const empty = progressiveBrief();
+    empty.finalists = [];
+    empty.decisionSummary = [];
+    expect(renderWithWidgetCode(empty)).toContain("No offer met your criteria");
+    const harness = bridgeHarness("https://apps.example/host");
+    harness.dispatch({
+      source: harness.parent,
+      origin: "https://apps.example",
+      data: { channel: "northcinder.buyers-brief.v1", brief: { ...empty, decisionSummary: "not-an-array" } },
+    });
+    expect(harness.root.innerHTML).toContain("Brief unavailable");
+  });
+});
+
 describe("widget host bridge boundary", () => {
   it("binds postMessage to the embedding parent, its referrer origin, and the dedicated channel while retaining window.openai support", () => {
     expect(BRIEF_WIDGET_HTML).toContain("northcinder.buyers-brief.v1");
@@ -257,6 +388,98 @@ describe("widget host bridge boundary", () => {
     expect(harness.root.innerHTML).toContain('role="alert"');
     expect(harness.root.innerHTML).toContain("Brief unavailable");
     expect(harness.root.innerHTML).toContain("Run the search again");
+  });
+
+  it("rejects malformed decisionSummary invariants at the mounted-widget boundary", () => {
+    const valid = progressiveBrief();
+    const invalidSummaries: Array<unknown> = [
+      [...valid.decisionSummary, { role: "lower_risk", sourceStore: "store-4", offerId: "progressive-4", roleReason: "Fourth row" }],
+      [valid.decisionSummary[0]!, valid.decisionSummary[1]!, { ...valid.decisionSummary[1]!, sourceStore: "store-4", offerId: "progressive-4" }],
+      [valid.decisionSummary[0]!, { ...valid.decisionSummary[0]!, role: "lower_risk" }],
+      [valid.decisionSummary[0]!, { ...valid.decisionSummary[1]!, role: "not-a-role" }],
+      [valid.decisionSummary[0]!, { ...valid.decisionSummary[1]!, role: "__proto__" }],
+      [{ ...valid.decisionSummary[0]!, sourceStore: "missing", offerId: "missing" }],
+    ];
+    for (const decisionSummary of invalidSummaries) {
+      const harness = bridgeHarness("https://apps.example/host");
+      harness.dispatch({
+        source: harness.parent,
+        origin: "https://apps.example",
+        data: {
+          channel: "northcinder.buyers-brief.v1",
+          brief: { ...valid, decisionSummary },
+        },
+      });
+      expect(harness.root.innerHTML).toContain("Brief unavailable");
+      expect(harness.root.innerHTML).not.toContain("Finalist 1");
+    }
+    const duplicateTuple = bridgeHarness("https://apps.example/host");
+    duplicateTuple.dispatch({
+      source: duplicateTuple.parent,
+      origin: "https://apps.example",
+      data: {
+        channel: "northcinder.buyers-brief.v1",
+        brief: { ...valid, finalists: [valid.finalists[0]!, { ...valid.finalists[0]! }], decisionSummary: [valid.decisionSummary[0]!] },
+      },
+    });
+    expect(duplicateTuple.root.innerHTML).toContain("Brief unavailable");
+    const invalidFields: Array<unknown> = [
+      [{ ...valid.decisionSummary[0]!, roleReason: undefined }],
+      [{ ...valid.decisionSummary[0]!, roleReason: 42 }],
+      [{ ...valid.decisionSummary[0]!, roleReason: "" }],
+    ];
+    for (const decisionSummary of invalidFields) {
+      const harness = bridgeHarness("https://apps.example/host");
+      harness.dispatch({
+        source: harness.parent,
+        origin: "https://apps.example",
+        data: { channel: "northcinder.buyers-brief.v1", brief: { ...valid, decisionSummary } },
+      });
+      expect(harness.root.innerHTML).toContain("Brief unavailable");
+    }
+    const emptyTuple = bridgeHarness("https://apps.example/host");
+    emptyTuple.dispatch({
+      source: emptyTuple.parent,
+      origin: "https://apps.example",
+      data: {
+        channel: "northcinder.buyers-brief.v1",
+        brief: {
+          ...valid,
+          finalists: [{ ...valid.finalists[0]!, sourceStore: "", offerId: "" }],
+          decisionSummary: [{ ...valid.decisionSummary[0]!, sourceStore: "", offerId: "" }],
+        },
+      },
+    });
+    expect(emptyTuple.root.innerHTML).toContain("Brief unavailable");
+  });
+
+  it.each([
+    ["missing summary.sourceStore", (brief: { decisionSummary: Array<Record<string, unknown>> }) => { delete brief.decisionSummary[0]!.sourceStore; }],
+    ["non-string summary.sourceStore", (brief: { decisionSummary: Array<Record<string, unknown>> }) => { brief.decisionSummary[0]!.sourceStore = 42; }],
+    ["whitespace-only summary.sourceStore", (brief: { decisionSummary: Array<Record<string, unknown>> }) => { brief.decisionSummary[0]!.sourceStore = "  "; }],
+    ["missing summary.offerId", (brief: { decisionSummary: Array<Record<string, unknown>> }) => { delete brief.decisionSummary[0]!.offerId; }],
+    ["non-string summary.offerId", (brief: { decisionSummary: Array<Record<string, unknown>> }) => { brief.decisionSummary[0]!.offerId = 42; }],
+    ["whitespace-only summary.offerId", (brief: { decisionSummary: Array<Record<string, unknown>> }) => { brief.decisionSummary[0]!.offerId = "  "; }],
+    ["missing finalist sourceStore", (brief: { finalists: Array<Record<string, unknown>> }) => { delete brief.finalists[3]!.sourceStore; }],
+    ["non-string finalist sourceStore", (brief: { finalists: Array<Record<string, unknown>> }) => { brief.finalists[3]!.sourceStore = 42; }],
+    ["whitespace-only finalist sourceStore", (brief: { finalists: Array<Record<string, unknown>> }) => { brief.finalists[3]!.sourceStore = "  "; }],
+    ["missing finalist offerId", (brief: { finalists: Array<Record<string, unknown>> }) => { delete brief.finalists[3]!.offerId; }],
+    ["non-string finalist offerId", (brief: { finalists: Array<Record<string, unknown>> }) => { brief.finalists[3]!.offerId = 42; }],
+    ["whitespace-only finalist offerId", (brief: { finalists: Array<Record<string, unknown>> }) => { brief.finalists[3]!.offerId = "  "; }],
+  ])("recovers from %s without rendering the valid baseline", (_label, mutate) => {
+    const brief = JSON.parse(JSON.stringify(progressiveBrief())) as {
+      decisionSummary: Array<Record<string, unknown>>;
+      finalists: Array<Record<string, unknown>>;
+    };
+    mutate(brief);
+    const harness = bridgeHarness("https://apps.example/host");
+    harness.dispatch({
+      source: harness.parent,
+      origin: "https://apps.example",
+      data: { channel: "northcinder.buyers-brief.v1", brief },
+    });
+    expect(harness.root.innerHTML).toContain("Brief unavailable");
+    expect(harness.root.innerHTML).not.toContain("Finalist 1");
   });
 });
 
@@ -301,6 +524,10 @@ describe("local trust evidence rendering (local trust evidence — display-only,
         { ...FIXTURE_BRIEF.finalists[0]!, offerId: "alpha-offer", sourceStore: "alpha", merchant: { id: "seller-1", name: "Alpha" } },
         { ...FIXTURE_BRIEF.finalists[1]!, offerId: "beta-offer", sourceStore: "beta", merchant: { id: "seller-1", name: "Beta" } },
       ],
+      decisionSummary: [
+        { role: "top_fit", sourceStore: "alpha", offerId: "alpha-offer", roleReason: "Alpha role" },
+        { role: "lower_risk", sourceStore: "beta", offerId: "beta-offer", roleReason: "Beta role" },
+      ],
     };
     const html = renderWithWidgetCode(
       brief,
@@ -317,6 +544,10 @@ describe("local trust evidence rendering (local trust evidence — display-only,
       finalists: [
         { ...FIXTURE_BRIEF.finalists[0]!, offerId: "alpha-offer", sourceStore: "alpha", merchant: { id: "seller-1", name: "Alpha" } },
         { ...FIXTURE_BRIEF.finalists[1]!, offerId: "beta-offer", sourceStore: "beta", merchant: { id: "seller-1", name: "Beta" } },
+      ],
+      decisionSummary: [
+        { role: "top_fit", sourceStore: "alpha", offerId: "alpha-offer", roleReason: "Alpha role" },
+        { role: "lower_risk", sourceStore: "beta", offerId: "beta-offer", roleReason: "Beta role" },
       ],
     };
     const harness = bridgeHarness("https://apps.example/embed");

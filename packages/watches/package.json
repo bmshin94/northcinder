@@ -1,7 +1,7 @@
 {
   "name": "@northcinder/watches",
-  "version": "0.1.0",
-  "description": "NorthCinder price watches: standing target-price watches that NOTIFY the user and never buy — 0600 local store, crash-safe budgeted checker with persisted at-least-once dedupe, ntfy/stderr/file/webhook notifiers. Structurally checkout-free (architectural test enforced).",
+  "version": "0.2.0",
+  "description": "NorthCinder notify-only price watches with a buyer-run scheduler, local state, persisted at-least-once delivery, and constrained notification channels",
   "license": "MIT",
   "type": "module",
   "engines": { "node": ">=20" },

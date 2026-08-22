@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { rankOffers, type Offer, type SearchRankResponse } from "@northcinder/protocol";
+import { rankOffers, type Offer, type SearchQuery, type SearchRankResponse } from "@northcinder/protocol";
 import { createNorthCinderRemoteMcpServer } from "../src/mcp-server.js";
+import { createServiceClient } from "../src/service-client.js";
 import type { NorthCinderServiceClient } from "../src/service-client.js";
 
 const ORGANIC_OFFER: Offer = {
@@ -30,9 +31,10 @@ const SPONSORED_WORSE_OFFER: Offer = {
   sponsored: true,
 };
 
-function fakeService(): NorthCinderServiceClient {
+function fakeService(onSearch?: (query: SearchQuery) => void): NorthCinderServiceClient {
   return {
     async search(query) {
+      onSearch?.(query);
       const trustSignals = {
         "mock-merchant.example": {
           merchantId: "mock-merchant.example",
@@ -77,6 +79,24 @@ async function connectedClient(service: NorthCinderServiceClient): Promise<Clien
 }
 
 describe("remote MCP server — read-only tool surface", () => {
+  it("makes one bridge POST attempt and preserves the typed Retry-After delay", async () => {
+    let calls = 0;
+    const service = createServiceClient({
+      serviceUrl: "https://engine.example",
+      clientKey: "key",
+      fetchImpl: async () => {
+        calls += 1;
+        return new Response("{}", { status: 429, headers: { "Retry-After": "2" } });
+      },
+    });
+    const result = await service.search({ text: "sneakers" });
+    expect(calls).toBe(1);
+    expect(result).toEqual({
+      ok: false,
+      error: { code: "service_error", message: "configured NorthCinder engine error (HTTP 429)", retryAfterMs: 2_000 },
+    });
+  });
+
   it("tools/list shows EXACTLY search_products and get_trust_signal — no checkout/approval/watch/profile/orders tools", async () => {
     const client = await connectedClient(fakeService());
     const { tools } = await client.listTools();
@@ -121,6 +141,32 @@ describe("remote MCP server — read-only tool surface", () => {
     expect(structured.brief.finalists.length).toBeGreaterThan(0);
     expect(structured.interpretedQuery.criteria.text).toBe("sneakers");
     expect(structured.rankingVerified).toBe(true);
+  });
+
+  it("passes named criteria and buyer context through the stateless bridge and rejects caller scores", async () => {
+    let receivedQuery: SearchQuery | undefined;
+    const client = await connectedClient(fakeService((query) => { receivedQuery = query; }));
+    const buyerContext = { subject: "trail running shoes", location: "Phoenix" };
+    const criteria = [
+      { id: "must-grip", label: "Grippy sole", importance: "required" as const, kind: "attribute" as const, value: "grippy" },
+      { id: "prefer-budget", label: "Budget", importance: "preferred" as const, kind: "max_price" as const, value: { amount: 15000, currency: "USD" } },
+      { id: "stock-tie", label: "Stock", importance: "tie_breaker" as const, kind: "availability" as const, value: "in_stock" as const },
+    ];
+    const result = await client.callTool({
+      name: "search_products",
+      arguments: { text: "trail shoes", buyerContext, criteria },
+    });
+
+    expect(result.isError ?? false).toBe(false);
+    expect(receivedQuery).toMatchObject({ text: "trail shoes", buyerContext, criteria });
+    const structured = result.structuredContent as { interpretedQuery: { criteria: SearchQuery } };
+    expect(structured.interpretedQuery.criteria.buyerContext).toEqual(buyerContext);
+
+    const rejected = await client.callTool({
+      name: "search_products",
+      arguments: { text: "trail shoes", criteria: [{ ...criteria[1], weight: 99, score: 99 }] },
+    });
+    expect(rejected.isError).toBe(true);
   });
 
   it("search_products surfaces a divergence when the service tampers with the ranking (re-verifies like the local client)", async () => {

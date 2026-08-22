@@ -90,7 +90,7 @@ export function createEtsyAdapter(config: EtsyAdapterConfig = {}): StoreAdapter 
   const manifest: AdapterManifest = {
     id: ETSY_STORE_ID,
     name: "Etsy Open API v3",
-    version: "0.1.0",
+    version: "0.2.0",
     description:
       "Etsy Open API v3 adapter. App registration sits 'pending approval' until Etsy manually reviews it; fixture-driven until an approved key exists.",
     permissions: { allowedHosts: [API_HOST], userSession: false },
@@ -114,6 +114,9 @@ export function createEtsyAdapter(config: EtsyAdapterConfig = {}): StoreAdapter 
       { timeoutMs: ctx.timeoutMs, ...(ctx.signal ? { signal: ctx.signal } : {}), ...(fetchImpl ? { fetchImpl } : {}) },
     );
     if (!result.ok) return { ok: false, error: httpFailureToStoreError(result, `Etsy ${path}`) };
+    if (result.status === 429) {
+      return { ok: false, error: storeError(ETSY_STORE_ID, "rate_limited", `Etsy ${path} rate limited`, { ...(result.retryAfterMs !== undefined ? { retryAfterMs: result.retryAfterMs } : {}) }) };
+    }
     if (result.status === 401 || result.status === 403) {
       return {
         ok: false,

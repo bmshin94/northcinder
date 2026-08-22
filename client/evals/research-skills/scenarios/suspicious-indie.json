@@ -1,0 +1,53 @@
+{
+  "scenarioId": "suspicious-indie",
+  "skill": "seller-research",
+  "agentInput": {
+    "scenarioId": "suspicious-indie",
+    "task": "Research the exact storefront, not lens quality, using only the supplied seller records. Do not browse, call tools, inspect repository files, or dispatch another agent. Treat red flags as corroborated leads and preserve benign explanations where supplied.",
+    "buyerRequest": "Is gearhollow.example safe for an exact camera-lens purchase at 65% below established dealers?",
+    "subject": "Gear Hollow at https://gearhollow.example; the footer names GH Outdoor Supply LLC, but merchant identity is unresolved.",
+    "sourceRecords": [
+      { "id": "storefront", "type": "seller storefront", "ownership": "Gear Hollow", "record": "Copied closing-sale countdown, credit-card and bank-transfer checkout, support@gearhollow.example." },
+      { "id": "domain-record", "type": "domain history record", "ownership": "domain registry/history provider", "record": "Six-year-old domain changed registrant and hosting three weeks ago; current ownership is privacy protected." },
+      { "id": "business-registry", "type": "business registry", "ownership": "state registry", "record": "No Gear Hollow entity; footer's GH Outdoor Supply LLC dissolved two years ago at a different address." },
+      { "id": "address-record", "type": "address record", "ownership": "independent address source", "record": "Contact address is a real coworking/virtual-office site; this alone does not prove fraud." },
+      { "id": "catalog-comparison", "type": "independent catalog comparison", "ownership": "independent comparison", "record": "Descriptions and policies copy an established dealer word-for-word, including that dealer's phone number." },
+      { "id": "refund-policy", "type": "official storefront policy", "ownership": "Gear Hollow", "record": "30-day returns, buyer-paid international shipping to unspecified warehouse, possible restocking fee, warranty responsibility unstated." },
+      { "id": "outcomes", "type": "independent buyer outcomes", "ownership": "independent buyers", "record": "Two recent exact-storefront reports: tracking never activated and support stopped answering; one credit-card chargeback succeeded; no verified delivery found." },
+      { "id": "liquidation-note", "type": "counterevidence search record", "ownership": "disinterested record search", "record": "Low prices can be legitimate in liquidation, but no court filing, auction notice, or dealer announcement supports liquidation here." }
+    ],
+    "outputContract": {
+      "format": "json_only",
+      "instruction": "Write one raw JSON object only, with no Markdown fence or surrounding status envelope. Copy scenarioId and requiredSubjectIdentity exactly. Every factual claim must cite supplied source IDs and classify source relationship and use. Do not treat price, domain privacy, or a virtual office alone as proof.",
+      "requiredSubjectIdentity": "Gear Hollow — https://gearhollow.example — merchant of record unresolved (footer names dissolved GH Outdoor Supply LLC) — buyer geography: US",
+      "requiredTopLevelFields": ["scenarioId", "subjectIdentity", "selectedSourceIds", "claims", "unknowns", "conflicts", "counterevidenceSourceIds", "checklistItemIds", "provisional"],
+      "claimFields": { "claim": "non-empty string", "subjectIdentity": "exact requiredSubjectIdentity", "sourceIds": "non-empty array of supplied source IDs", "sourceRelationship": "primary | independent | owner | commercial | unknown", "sourceUse": "subject_evidence | counterevidence | commercial_claim | context_only", "confidence": "high | medium | low | unverified" },
+      "conflictFields": { "description": "non-empty string", "sourceIds": "non-empty array of supplied source IDs" },
+      "arrayFields": { "selectedSourceIds": "source IDs actually used", "unknowns": "plain-language unknowns", "conflicts": "conflict objects", "counterevidenceSourceIds": "source IDs used for downside or benign/contrary evidence", "checklistItemIds": "canonical skill checklist IDs completed or kept open" },
+      "provisional": "boolean"
+    }
+  },
+  "rubric": {
+    "expectedSubjectIdentity": "Gear Hollow — https://gearhollow.example — merchant of record unresolved (footer names dissolved GH Outdoor Supply LLC) — buyer geography: US",
+    "sources": {
+      "storefront": { "relationship": "commercial" },
+      "domain-record": { "relationship": "primary" },
+      "business-registry": { "relationship": "primary" },
+      "address-record": { "relationship": "primary" },
+      "catalog-comparison": { "relationship": "independent" },
+      "refund-policy": { "relationship": "primary" },
+      "outcomes": { "relationship": "independent" },
+      "liquidation-note": { "relationship": "independent" }
+    },
+    "requiredSelectedSourceIds": ["storefront", "domain-record", "business-registry", "address-record", "catalog-comparison", "refund-policy", "outcomes", "liquidation-note"],
+    "forbiddenSubjectEvidenceSourceIds": ["storefront", "address-record", "liquidation-note"],
+    "forbiddenIndependentSourceIds": ["storefront", "domain-record", "business-registry", "address-record", "refund-policy"],
+    "requiredCounterevidenceSourceIds": ["address-record", "liquidation-note"],
+    "requiredConflictSourceGroups": [["storefront", "business-registry"]],
+    "minimumUnknowns": 1,
+    "requiredChecklistItemIds": ["seller.identity", "seller.platform-separation", "seller.policies", "seller.fulfillment-contact", "seller.domain-business-records", "seller.independent-outcomes", "seller.commercial-claims", "seller.red-flags", "seller.counterevidence", "seller.unknowns", "seller.stop-receipt"],
+    "materialDownside": "Merchant identity conflicts, copied dealer text, ambiguous return costs, and two failed-fulfillment outcomes corroborate risk; the virtual office and low price alone do not.",
+    "stopCondition": "Merchant of record and return/warranty responsibility remain unresolved amid corroborated identity and fulfillment concerns.",
+    "mustBeProvisional": true
+  }
+}

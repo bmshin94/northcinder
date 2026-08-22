@@ -55,6 +55,18 @@ export const WatchChannelSchema = z.discriminatedUnion("type", [
 ]);
 export type WatchChannel = z.infer<typeof WatchChannelSchema>;
 
+/**
+ * Channels an MCP host may select while creating a watch. Destination details
+ * remain scheduler-owned configuration, so model input cannot choose a path,
+ * bearer topic, or webhook target.
+ */
+export const McpWatchChannelSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("ntfy") }).strict(),
+  z.object({ type: z.literal("stderr") }).strict(),
+  z.object({ type: z.literal("file") }).strict(),
+]);
+export type McpWatchChannel = z.infer<typeof McpWatchChannelSchema>;
+
 export const WatchStateSchema = z.enum(["active", "cancelled", "expired"]);
 export type WatchState = z.infer<typeof WatchStateSchema>;
 
@@ -65,6 +77,7 @@ export const WatchCheckOutcomeSchema = z.enum([
   "target_hit_deduped",
   "offer_not_found",
   "notify_failed",
+  "cooldown_deferred",
   "expired",
 ]);
 export type WatchCheckOutcome = z.infer<typeof WatchCheckOutcomeSchema>;
@@ -100,6 +113,9 @@ export const WatchSchema = z.object({
   lastCheckedAt: z.iso.datetime().optional(),
   lastPrice: MoneySchema.optional(),
   lastStatus: WatchLastStatusSchema.optional(),
+  lastSuccessAt: z.iso.datetime().optional(),
+  lastFailureAt: z.iso.datetime().optional(),
+  nextEligibleCheckAt: z.iso.datetime().optional(),
   /**
    * At-least-once notification dedupe, persisted across restarts: one entry
    * per already-notified price bucket (see priceBucket in @northcinder/watches).

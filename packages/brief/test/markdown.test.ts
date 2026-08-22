@@ -18,6 +18,21 @@ const BRIEF: BuyersBrief = {
       deliveryBy: "2026-07-08",
       trustLevel: "trusted",
       sponsored: false,
+      imageUrl: "https://ebay.example/p/o1.jpg",
+      productIdentity: { canonical: "Wool Runner o1 blue US 9", variant: "blue US 9", identifiers: [] },
+      landedCost: {
+        components: [{ kind: "item_price", amount: { amount: 9800, currency: "USD" } }],
+        knownTotal: { amount: 9800, currency: "USD" },
+        unknownComponents: [],
+        completeness: "complete",
+      },
+      sellerState: "trusted",
+      freshness: { status: "known", observedAt: "2026-07-04T12:00:00.000Z" },
+      verificationState: "merchant_verified",
+      decisionStatus: "ready",
+      importantUnknowns: [],
+      decisiveDownside: "No decisive downside established from current evidence.",
+      rawReasons: [{ criterion: "price", detail: "lowest price: 9800 USD" }],
       whyThis: [
         "price: lowest price: 9800 USD",
         "availability: in stock",
@@ -38,6 +53,13 @@ const BRIEF: BuyersBrief = {
       price: { amount: 9990, currency: "USD" },
       availability: "in_stock",
       sponsored: true,
+      sellerState: "unknown",
+      freshness: { status: "unknown" },
+      verificationState: "merchant_verified",
+      decisionStatus: "provisional",
+      importantUnknowns: ["Research readiness is unknown."],
+      decisiveDownside: "Paid or unknown placement requires extra caution.",
+      rawReasons: [{ criterion: "price", detail: "price: 9990 USD, 190 USD above the cheapest offer" }],
       whyThis: ["price: price: 9990 USD, 190 USD above the cheapest offer"],
       tradeoffs: [],
       provenance: {
@@ -59,6 +81,11 @@ const BRIEF: BuyersBrief = {
     { store: "etsy", status: "not_configured", offerCount: 0, detail: "not_configured: ETSY_API_KEY not set" },
   ],
   offersConsidered: 3,
+  decisionSummary: [
+    { role: "top_fit", sourceStore: "ebay", offerId: "o1", roleReason: "First qualifying finalist in the neutrality ranking." },
+    { role: "budget_or_different", sourceStore: "ebay", offerId: "o10", roleReason: "A distinct remaining finalist for comparison." },
+  ],
+  unresolvedResearchQuestions: ["For Wool Runner o10: establish current research readiness."],
 };
 
 const EXPECTED = `# northcinder buyer's brief — "wool sneakers"
@@ -111,8 +138,43 @@ _Every registered store is listed above — nothing was silently skipped._
 `;
 
 describe("renderBriefMarkdown — deterministic universal fallback", () => {
-  it("renders the EXACT markdown template (snapshot with exact content)", () => {
-    expect(renderBriefMarkdown(BRIEF)).toBe(EXPECTED);
+  it("renders only the role summary in compact progressive markdown", () => {
+    const extended: BuyersBrief = {
+      ...BRIEF,
+      finalists: [
+        ...BRIEF.finalists,
+        { ...BRIEF.finalists[0]!, rank: 3, offerId: "o3", title: "Hidden finalist three" },
+        { ...BRIEF.finalists[0]!, rank: 4, offerId: "o4", title: "Hidden finalist four" },
+        { ...BRIEF.finalists[0]!, rank: 5, offerId: "o5", title: "Hidden finalist five" },
+      ],
+      offersConsidered: 6,
+    };
+    const md = renderBriefMarkdown(extended);
+    expect(md).toContain("## Top fit in this search");
+    expect(md).toContain("### #1 [Wool Runner o1](<https://ebay.example/p/o1>)");
+    expect(md).toContain("Wool Runner o10");
+    expect(md).toContain("exact variant: blue US 9");
+    expect(md).toContain("exact variant: unknown");
+    expect(md).toContain("current price: 98.00 USD");
+    expect(md).toContain("**Main ranking reason:** price: lowest price: 9800 USD");
+    expect(md).toContain("**Why this role:** First qualifying finalist in the neutrality ranking.");
+    expect(md).toContain("seller state: trusted");
+    expect(md).toContain("verification: merchant\\_verified");
+    expect(md).toContain("readiness: ready");
+    expect(md).toContain("freshness: known at 2026-07-04T12:00:00.000Z");
+    expect(md).toContain("landed cost: 98.00 USD (complete)");
+    expect(md).toContain("exact variant: unknown");
+    expect(md).toContain("landed cost: not confirmed");
+    expect(md).toContain("**Decisive downside:** No decisive downside established from current evidence.");
+    expect(md).toContain("3 additional finalist(s), 1 rejected offer(s), and 5 raw ranking reason(s) are available in structured/widget expansion.");
+    expect(md).toContain("## Store coverage");
+    expect(md).not.toContain("Hidden finalist four");
+    expect(md).not.toContain("Hidden finalist five");
+    expect(md).not.toContain("## Rejected (and the criteria that eliminated them)");
+    expect(md).not.toContain("**Why this (your criteria):**");
+    expect(md).not.toContain("best overall");
+    expect((md.match(/^### /gm) ?? []).length).toBeLessThanOrEqual(3);
+    expect(md.indexOf("**Why this role:**")).toBeLessThan(md.indexOf("**Main ranking reason:**"));
   });
 
   it("sponsored badge text is exact and appears once per sponsored finalist", () => {
@@ -137,6 +199,7 @@ describe("renderBriefMarkdown — deterministic universal fallback", () => {
         },
       ],
       offersConsidered: 1,
+      decisionSummary: [{ role: "top_fit", sourceStore: "agent_browser", offerId: "o1", roleReason: "First qualifying finalist in the neutrality ranking." }],
     };
 
     const md = renderBriefMarkdown(observed);
@@ -150,9 +213,9 @@ describe("renderBriefMarkdown — deterministic universal fallback", () => {
   });
 
   it("zero finalists renders the honest empty state, never padding", () => {
-    const empty: BuyersBrief = { ...BRIEF, finalists: [], offersConsidered: 1 };
+    const empty: BuyersBrief = { ...BRIEF, finalists: [], offersConsidered: 1, decisionSummary: [], unresolvedResearchQuestions: [] };
     const md = renderBriefMarkdown(empty);
-    expect(md).toContain("_No offer met your criteria — nothing is padded in to fill the list. See the rejected appendix._");
+    expect(md).toContain("_No offer met your criteria — nothing is padded in to fill the list. Structured details remain available when present._");
   });
 });
 
@@ -201,10 +264,42 @@ describe("markdown injection hardening regression", () => {
     }
     // Content survives, sanitized inline.
     expect(md).toContain("Nice Shoe \\| forged-store \\| searched \\| 999 \\|");
-    expect(md).toContain("Bad \\| Product Injected line");
+    expect(md).not.toContain("Bad \\| Product Injected line");
   });
 
-  it("the sanitizer is identity on clean strings (snapshot unchanged)", () => {
-    expect(renderBriefMarkdown(BRIEF)).toBe(EXPECTED);
+  it("escapes hostile summary display facts without leaking the raw ledger", () => {
+    const hostile: BuyersBrief = {
+      ...BRIEF,
+      finalists: [{ ...BRIEF.finalists[0]!, title: "Nice Shoe\n### Forged candidate", decisiveDownside: "bad | downside" }],
+      decisionSummary: [{ role: "top_fit", sourceStore: "ebay", offerId: "o1", roleReason: "First qualifying finalist in the neutrality ranking." }],
+    };
+    const md = renderBriefMarkdown(hostile);
+    expect(md).toContain("Nice Shoe \\#\\#\\# Forged candidate");
+    expect(md).toContain("bad \\| downside");
+    expect(md.split("\n")).not.toContain("### Forged candidate");
+  });
+
+  it("links only safe HTTP(S) titles and escapes Markdown syntax as literal text", () => {
+    const hostileTitle = "[click me](javascript:alert(1)) *featured* _also_ ~~sale~~ ![pic](https://tracker.example/pixel)";
+    const unsafe: BuyersBrief = {
+      ...BRIEF,
+      finalists: [{
+        ...BRIEF.finalists[0]!,
+        title: hostileTitle,
+        url: "javascript:alert(1)",
+        whyThis: ["price: **claimed** low [proof](javascript:alert(2))"],
+      }],
+      decisionSummary: [{
+        role: "top_fit",
+        sourceStore: "ebay",
+        offerId: "o1",
+        roleReason: "Role *reason* stays distinct.",
+      }],
+    };
+    const md = renderBriefMarkdown(unsafe);
+    expect(md).toContain("### #1 \\[click me\\](javascript:alert(1)) \\*featured\\* \\_also\\_ \\~\\~sale\\~\\~ \\!\\[pic\\](https://tracker.example/pixel)");
+    expect(md).not.toContain("<javascript:alert(1)>");
+    expect(md).toContain("**Why this role:** Role \\*reason\\* stays distinct.");
+    expect(md).toContain("**Main ranking reason:** price: \\*\\*claimed\\*\\* low \\[proof\\](javascript:alert(2))");
   });
 });

@@ -11,7 +11,7 @@ const breadcrumbs = [{ name: 'Home', path: '/' }, { name: page.label, path: page
 const faqs: FaqItem[] = [
   {
     question: 'Can a search or price watch authorize a purchase?',
-    answer: 'No. Search and watches do not produce a purchase mandate. Automated checkout needs a separate approval for the exact offer, quantity, total cap, and order fingerprint.',
+    answer: 'No. Search and watches do not produce a purchase mandate. Automated checkout needs a separate approval for the exact offer, one unit, total cap, and order fingerprint.',
   },
   {
     question: 'Can an approved mandate be reused?',
@@ -29,7 +29,7 @@ const schemas = articleSchemas(page, breadcrumbs, faqs);
   page={page}
   breadcrumbs={breadcrumbs}
   schemas={schemas}
-  intro="NorthCinder treats search, recommendation, approval, and checkout as separate events. A recommendation cannot buy anything. Before an automated rail can run, the buyer must review the exact offer, quantity, known total, hard spending cap, and fingerprint through a buyer-local approval surface. Approval signs that payload once. A cross-process nonce ledger then prevents the same mandate from being used again."
+  intro="NorthCinder treats search, recommendation, approval, and checkout as separate events. A recommendation cannot buy anything. Before an automated rail can run, the buyer must review the exact offer, one unit, known total, hard spending cap, and fingerprint through a buyer-local approval surface. Approval signs that payload once. A cross-process nonce ledger then prevents the same mandate from being used again."
 >
   <h2>Search is not purchase authority</h2>
   <p>
@@ -48,13 +48,13 @@ const schemas = articleSchemas(page, breadcrumbs, faqs);
   <p>
     The buyer-local approval page and the MCP approval flow show the same purchase tuple. Both use the same
     verification function, so one surface cannot approve a weaker payload than the other. The visible receipt
-    includes the item, merchant, quantity, known price and shipping, unknown-tax warning when relevant, hard
+    includes the item, merchant, one unit, known price and shipping, unknown-tax warning when relevant, hard
     cap, and an order fingerprint. Decline remains a direct, equal choice.
   </p>
 
   <div class="ledger-list">
     <dl class="ledger-row"><dt>Offer</dt><dd>The exact source offer selected by the buyer</dd></dl>
-    <dl class="ledger-row"><dt>Quantity</dt><dd>The exact number of units being authorized</dd></dl>
+    <dl class="ledger-row"><dt>Quantity</dt><dd>One unit per mandate</dd></dl>
     <dl class="ledger-row"><dt>Hard cap</dt><dd>The maximum amount the checkout orchestration may accept</dd></dl>
     <dl class="ledger-row"><dt>Fingerprint</dt><dd>A short cross-check for the payload shown on both approval surfaces</dd></dl>
     <dl class="ledger-row"><dt>Decision</dt><dd>Approve once or decline without a purchase attempt</dd></dl>
@@ -64,13 +64,12 @@ const schemas = articleSchemas(page, breadcrumbs, faqs);
   <p>
     Approval produces a signed VerifiedMandate for the exact payload. The mandate carries a validity window,
     the purchase terms, and a single-use nonce. Checkout verifies the signature and payload before it calls an
-    external rail. A modified offer ID, quantity, amount, merchant, or cap fails verification instead of being
+    external rail. A modified offer ID, amount, merchant, or cap fails verification instead of being
     treated as close enough.
   </p>
   <p>
-    The mandate is not a standing shopping budget and is not reusable permission for a store. When the buyer
-    wants a different item or quantity, NorthCinder creates a new authorization and requires another human
-    decision.
+    The mandate is not a standing shopping budget and is not reusable permission for a store. Multi-unit checkout
+    is not supported in 0.2.0. A different item needs a fresh approval.
   </p>
 
   <h2>Replay protection happens before effects</h2>

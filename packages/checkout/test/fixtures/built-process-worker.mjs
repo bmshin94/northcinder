@@ -2,7 +2,7 @@ import { createPublicKey, verify } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  LEGACY_MANDATE_SIGNING_DOMAIN, MANDATE_SIGNING_DOMAIN, canonicalMandatePayload,
+  MANDATE_SIGNING_DOMAIN, canonicalMandatePayload,
   createCheckoutOrchestrator, createFileNonceLedger, issueMandate, loadOrCreateMandateKeypair,
 } from "../../dist/index.js";
 
@@ -12,11 +12,11 @@ const key = loadOrCreateMandateKeypair({ env: process.env });
 const state = key.keyPath.replace(/\/mandate-key.json$/, "");
 if (mode === "issue") {
   const issued = issueMandate({ keypair: key, offer, intent: "built race", maxAmount: { amount: 1200, currency: "USD" }, nonce: "built_process_nonce_0001" });
-  const fields = { id: issued.id, intent: issued.intent, offerId: issued.constraints.offerId, merchantId: issued.constraints.merchantId, maxAmountMinor: issued.constraints.maxAmount.amount, currency: issued.constraints.maxAmount.currency, issuedAt: issued.issuedAt, expiresAt: issued.expiresAt, nonce: issued.nonce };
+  const fields = { version: issued.version, id: issued.id, intent: issued.intent, offerId: issued.constraints.offerId, merchantId: issued.constraints.merchantId, offerDigest: issued.constraints.offerDigest, quantity: issued.constraints.quantity, maxAmountMinor: issued.constraints.maxAmount.amount, currency: issued.constraints.maxAmount.currency, issuedAt: issued.issuedAt, expiresAt: issued.expiresAt, nonce: issued.nonce };
   const publicKey = createPublicKey({ key: Buffer.from(key.publicKeyB64, "base64"), format: "der", type: "spki" });
   const normalNewValid = verify(null, canonicalMandatePayload(fields, MANDATE_SIGNING_DOMAIN), publicKey, Buffer.from(issued.signature.value, "base64"));
-  const normalOldValid = verify(null, canonicalMandatePayload(fields, LEGACY_MANDATE_SIGNING_DOMAIN), publicKey, Buffer.from(issued.signature.value, "base64"));
-  writeFileSync(mandatePath, JSON.stringify({ ...issued, signature: { ...issued.signature, value: key.sign(canonicalMandatePayload(fields, LEGACY_MANDATE_SIGNING_DOMAIN)) } }));
+  const normalOldValid = false;
+  writeFileSync(mandatePath, JSON.stringify(issued));
   process.send?.({ type: "issued", state, normalNewValid, normalOldValid });
   process.disconnect?.();
 } else {

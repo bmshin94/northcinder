@@ -13,6 +13,14 @@ describe("remote upstream service URL", () => {
     expect(() => parseRemoteServiceUrl(value)).toThrow(/HTTP/i);
   });
 
+  it("requires HTTPS except for an explicit loopback HTTP engine", () => {
+    expect(() => parseRemoteServiceUrl("http://service.internal/api")).toThrow(/HTTPS|loopback/i);
+    expect(parseRemoteServiceUrl("http://127.0.0.1:8790")).toBe("http://127.0.0.1:8790/");
+    expect(parseRemoteServiceUrl("https://service.internal/api")).toBe("https://service.internal/api");
+    expect(() => parseRemoteServiceUrl("https://service.internal/api?other=1")).toThrow(/query/i);
+    expect(() => parseRemoteServiceUrl("https://service.internal/api#other")).toThrow(/fragment/i);
+  });
+
   it("never includes an upstream coordinate or credentials in its startup log", () => {
     const configured = parseRemoteServiceUrl("https://service.internal:8443/api");
     const line = remoteUpstreamLogLine(configured);

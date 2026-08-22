@@ -2,7 +2,10 @@ import { z } from "zod";
 import {
   AgentObservedAcquisitionSchema,
   AvailabilitySchema,
+  ExactProductIdentitySchema,
+  LandedCostSchema,
   MoneySchema,
+  RankReasonSchema,
   SearchQuerySchema,
   TrustLevelSchema,
 } from "./core.js";
@@ -57,6 +60,17 @@ export const TradeoffSchema = z.object({
 });
 export type Tradeoff = z.infer<typeof TradeoffSchema>;
 
+export const DecisionCandidateRoleSchema = z.enum(["top_fit", "lower_risk", "budget_or_different"]);
+export type DecisionCandidateRole = z.infer<typeof DecisionCandidateRoleSchema>;
+
+export const FreshnessSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("known"), observedAt: z.iso.datetime() }).strict(),
+  z.object({ status: z.literal("unknown") }).strict(),
+]);
+export type Freshness = z.infer<typeof FreshnessSchema>;
+
+const BriefDisplayTextSchema = z.string().trim().min(1).max(2_000);
+
 export const BriefFinalistSchema = z.object({
   /** 1-based position, inherited verbatim from the neutrality ranking. */
   rank: z.int().positive(),
@@ -74,6 +88,24 @@ export const BriefFinalistSchema = z.object({
   trustLevel: TrustLevelSchema.optional(),
   /** Paid placement badge — always carried, never re-ranked upward. */
   sponsored: z.boolean(),
+  /** Product image supplied by the source, when available. */
+  imageUrl: z.url().optional(),
+  /** Exact identity, where either a candidate submission or source supplied it. */
+  productIdentity: ExactProductIdentitySchema.optional(),
+  /** Effective candidate-submission cost before the offer's optional cost fact. */
+  landedCost: LandedCostSchema.optional(),
+  /** Explicit trust display state; no signal remains unknown rather than implied. */
+  sellerState: TrustLevelSchema,
+  /** Latest valid offer/evidence observation, or an explicit unknown. */
+  freshness: FreshnessSchema,
+  verificationState: z.enum(["agent_observed", "merchant_verified"]),
+  decisionStatus: z.enum(["eliminated", "provisional", "ready"]),
+  /** Bounded current readiness unknowns and stable gap descriptions. */
+  importantUnknowns: z.array(BriefDisplayTextSchema).max(12),
+  /** The single highest-priority downside supported by current evidence. */
+  decisiveDownside: BriefDisplayTextSchema,
+  /** Original ranking reasons, retained for structured expansion only. */
+  rawReasons: z.array(RankReasonSchema).min(1).max(50),
   /** Browser-agent provenance when this row was reported rather than independently verified. */
   acquisition: AgentObservedAcquisitionSchema.optional(),
   /** Why THIS offer, phrased against the USER's criteria — derived deterministically from reasons[]. */
@@ -108,5 +140,48 @@ export const BuyersBriefSchema = z.object({
   coverage: z.array(CoverageEntrySchema),
   /** Total ranked offers the brief was composed from (finalists + rejected). */
   offersConsidered: z.int().nonnegative(),
+  /** At most three role-labelled finalist references, never a re-ranking. */
+  decisionSummary: z
+    .array(
+      z.object({
+        role: DecisionCandidateRoleSchema,
+        sourceStore: z.string().min(1),
+        offerId: z.string().min(1),
+        roleReason: BriefDisplayTextSchema,
+      }),
+    )
+    .max(3),
+  /** Bounded buyer-facing research prompts derived from current summary evidence. */
+  unresolvedResearchQuestions: z
+    .array(BriefDisplayTextSchema)
+    .max(12)
+    .refine((questions) => new Set(questions).size === questions.length, "research questions must be unique"),
+}).superRefine((brief, context) => {
+  const finalistKeys = new Set(brief.finalists.map((finalist) => JSON.stringify([finalist.sourceStore, finalist.offerId])));
+  const roles = new Set<string>();
+  const summaryOffers = new Set<string>();
+  for (const [index, summary] of brief.decisionSummary.entries()) {
+    const key = JSON.stringify([summary.sourceStore, summary.offerId]);
+    if (!finalistKeys.has(key)) {
+      context.addIssue({ code: "custom", path: ["decisionSummary", index], message: "summary entry must resolve to a finalist" });
+    }
+    if (roles.has(summary.role)) {
+      context.addIssue({ code: "custom", path: ["decisionSummary", index, "role"], message: "summary roles must be unique" });
+    }
+    if (summaryOffers.has(key)) {
+      context.addIssue({ code: "custom", path: ["decisionSummary", index], message: "summary offer tuples must be unique" });
+    }
+    roles.add(summary.role);
+    summaryOffers.add(key);
+  }
+  const sequence = brief.decisionSummary.map((summary) => summary.role);
+  if (sequence.length > 0 && sequence[0] !== "top_fit") {
+    context.addIssue({ code: "custom", path: ["decisionSummary", 0, "role"], message: "top_fit must be the first summary role" });
+  }
+  const lowerRiskIndex = sequence.indexOf("lower_risk");
+  const budgetIndex = sequence.indexOf("budget_or_different");
+  if (lowerRiskIndex !== -1 && budgetIndex !== -1 && lowerRiskIndex > budgetIndex) {
+    context.addIssue({ code: "custom", path: ["decisionSummary"], message: "lower_risk must precede budget_or_different" });
+  }
 });
 export type BuyersBrief = z.infer<typeof BuyersBriefSchema>;

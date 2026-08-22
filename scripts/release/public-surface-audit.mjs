@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, extname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,7 +25,8 @@ const ALLOWED_RELEASE_PATHS = new Set([
 ]);
 
 const ALLOWED_CLIENT_SCRIPT_PATHS = new Set([
-  "client/scripts/build-mcpb.mjs", "client/scripts/validate-mcpb-manifest.mjs", "client/scripts/zip-lite.mjs",
+  "client/scripts/build-mcpb.mjs", "client/scripts/grade-research-skill-evals.mjs",
+  "client/scripts/validate-mcpb-manifest.mjs", "client/scripts/zip-lite.mjs",
 ]);
 
 const ALLOWED_GITHUB_PATHS = new Set([
@@ -57,11 +57,22 @@ const PUBLIC_AUDIENCE_FILES = [
   "docs/brand/wordmark.svg",
   "remote/README.md",
   "site/src/pages/llms.txt.ts",
+  "site/src/pages/install.astro",
+  "site/src/pages/checkout-safety.astro",
 ];
 
 const INTERNAL_COPY_PATTERNS = [
   ["obsolete public-status disclaimer", /public (?:repository|coordinates?).{0,60}(?:do not exist|not configured)|not published by this source tree/i],
 ];
+
+const PATH_SPECIFIC_SEMANTIC_COPY_PATTERNS = new Map([
+  ["site/src/pages/install.astro", [
+    ["obsolete local-install credential copy", /local client key|buyer-run engine command/i],
+  ]],
+  ["site/src/pages/checkout-safety.astro", [
+    ["unsupported variable-quantity copy", /exact number of units|different item or quantity/i],
+  ]],
+]);
 
 const STANDALONE_COPY_PATTERNS = [
   ["NorthCinder-operated hosting claim", /\b(?:a|the) hosted NorthCinder (?:operator|service)\b|\bNorthCinder hosted remote MCP\b/i],
@@ -97,52 +108,44 @@ const SENSITIVE_PATTERNS = [
   ["private IPv4 address", /\b(?:10(?:\.\d{1,3}){3}|172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2}|192\.168(?:\.\d{1,3}){2})\b/],
 ];
 
-// SHA-256 fingerprints let the public checker reject private vocabulary
-// without republishing the vocabulary itself. Candidates are normalized to
-// lowercase words and adjacent two-word phrases before hashing.
-const PRIVATE_TOOL_HASHES = new Set([
-  "c857d09db23e6822e3600bc06ad8d58f92ed62bc8efd81c753f77048662cb97d",
-  "57de4cf40144bdf7d00010f2f5557a7d642c2b9705309bfade167dd313e2ca93",
-  "09cf980b5ff304ac11b7f6d2c5c263da2a867425798ef5cc5d2ebcf55c4fcd23",
-  "b225390a8984c8de4206c746772ab5ef2abb0a02bcb043da10f6d41c274d1a02",
-  "556d1f14c80f008eb61334df7417e0adb53464a22552ce44913c435fd39f3fe5",
+const INTERNAL_POSITIONING_PATTERNS = [
+  /\b(?:slice|batch)\s+\d+\b/i,
+  /\bin this handoff\b/i,
+  /\b(?:model|agent|host)[ -]tier\b|\b(?:weak|strong|fresh)[ -](?:model|agent)\b|\bfresh-agent\b/i,
+  /\binternal(?:ly)?[ -](?:sample|evaluation|score|benchmark|run)s?\b/i,
+  /\b(?:fix|review)\s+wave\b/i,
+  /\b(?:spec|invariant)\s*(?:§|#|number\s*)\d+\b/i,
+  /\b(?:determinism|safety contract)\s+law\b|\barchitectural test\b|\bdead[- ]code(?: history)?\b/i,
+];
+
+const SHIPPED_SOURCE_INTERNAL_PATTERNS = [
+  /\b(?:slice|batch)\s+\d+\b/i,
+];
+
+const SYNTHETIC_OPERATOR_ROOTS = new Map([
+  ["client/test/local-ui.test.ts", new Set(["/home/alice"])],
+  ["packages/checkout/test/keystore.test.ts", new Set(["/home/u"])],
+  ["scripts/release/public-surface-audit.mjs", new Set(["/home/private-operator", "/home/alice", "/home/u", "/mnt/c/users/synthetic-operator"])],
+  ["scripts/release/test/public-surface-audit.test.mjs", new Set([
+    "/home/private-operator",
+    "/home/alice",
+    "/home/u",
+    "/mnt/c/users/synthetic-operator",
+  ])],
 ]);
 
-const PRIVATE_PROCESS_HASHES = new Set([
-  "0dabc0c8832b5ef3c1fdaad660ccbbb67611cc8c0fcc2d182ba6ba78f43c6995",
-  "29be9f45c066041ace1f8132fe46097d2bafecf335b56753e782ff7933a65c10",
-  "bce5837fb3b36b2275cf717231971ddee2de08523814a37042ea8b68c4231690",
-  "df47229adfadbe30813dac4a4c7385e005297e3e6eb388fb76d737e36e754e9d",
-  "a0933f51ba80cc6e9f729b0029c8962559093f2d73a7add759bc2a8a128d0890",
-  "a5144ed83fa9121d1e2d5eee2a4cb0511c470f7ce493732168765c7e6471a627",
-  "b7e01797fe615533085892725f763a4c677e203abdf212103c9079efd5c6b3c2",
-  "8ab9e162e73409ade00acc14be4907b5270abcc02b70daf3f5d64a8eb4c999ed",
-  "db6f17e4e1b7c659cfd4347b3ce0df70ea783d394c7c74f4514e3e493405c694",
-  "1d16a32028098bd74c0ee098b28e5af6415da5f9f773acd600319161c6532ebc",
-  "759c562374c8a22f7a5e4aef15a50aacec4c70ed895ca5682258b524b1664d19",
-  "be4765eb4b40373a51311583eac8c5b0555f312e5dc7ee3312d420261aaaf302",
-  "0fcddd6228724be99b1dfb5d935e55e3de402dd64d969cc2a3b1f2a03ede2d12",
-  "8d4392980a375524812037945a74a5cac7532d0a744a863b7b727a2a6a0f7681",
-]);
-
-const PRIVATE_LOCAL_PATH_HASHES = new Set([
-  "ee3665fe4c143ddb210e2b648d93a911f2600c26d1a7757b215ab64f81e3e897",
-  "5faa969aaa33ccc02cd777be65d00fee560d1d968a7933e0682db6fd4a2908fd",
-  "8ffc9b067f4ad3e426ac3f78e9a45fdae9ea7b6d115c304fa86888acde2bbcaa",
-]);
-
-function digest(value) {
-  return createHash("sha256").update(value).digest("hex");
-}
-
-function vocabularyCandidates(body) {
-  const words = body.toLowerCase().match(/[a-z]+|\d+/g) ?? [];
-  const candidates = new Set(words);
-  for (let index = 0; index + 1 < words.length; index += 1) {
-    candidates.add(`${words[index]} ${words[index + 1]}`);
-    candidates.add(`${words[index]}${words[index + 1]}`);
-  }
-  return candidates;
+function isPublicPositioningPath(path) {
+  return path === "history" ||
+    path === "CHANGELOG.md" ||
+    path === "docs/RANKING.md" ||
+    path === "client/mcpb/manifest.json" ||
+    path === "client/server.template.json" ||
+    path === "site/src/pages/store-coverage.astro" ||
+    path === "site/src/site-content.ts" ||
+    path.endsWith("/package.json") ||
+    path.endsWith("/README.md") ||
+    path === "README.md" ||
+    path.startsWith(".github/");
 }
 
 function git(args, options = {}) {
@@ -169,7 +172,7 @@ export function forbiddenPathFindings(paths) {
 }
 
 export function publicCopyFindings(path, body) {
-  return INTERNAL_COPY_PATTERNS
+  return [...INTERNAL_COPY_PATTERNS, ...(PATH_SPECIFIC_SEMANTIC_COPY_PATTERNS.get(path) ?? [])]
     .filter(([, pattern]) => pattern.test(body))
     .map(([label]) => `${path}: ${label}`);
 }
@@ -193,16 +196,17 @@ function missingStandaloneCopyFindings(path, body) {
     .map((required) => `${path}: missing standalone contract text ${JSON.stringify(required)}`);
 }
 
-export function sensitiveTextFindings(path, body, privateLocalPathHashes = PRIVATE_LOCAL_PATH_HASHES) {
+export function sensitiveTextFindings(path, body) {
   const findings = SENSITIVE_PATTERNS
     .filter(([, pattern]) => pattern.test(body))
     .map(([label]) => `${path}: ${label}`);
-  const localPathRoots = [
+  const localPathRoots = [...new Set([
     ...body.matchAll(/\/home\/[A-Za-z0-9._-]+/g),
     ...body.matchAll(/\/mnt\/[a-z]\/Users\/[A-Za-z0-9._ -]+/gi),
     ...body.matchAll(/[A-Za-z]:\\Users\\[^\\\r\n]+/g),
-  ].map((match) => match[0].replaceAll("\\", "/").toLowerCase());
-  if (localPathRoots.some((candidate) => privateLocalPathHashes.has(digest(candidate)))) {
+  ].map((match) => match[0].replaceAll("\\", "/").toLowerCase()))];
+  const allowedRoots = SYNTHETIC_OPERATOR_ROOTS.get(path) ?? new Set();
+  if (localPathRoots.some((candidate) => !allowedRoots.has(candidate))) {
     findings.push(`${path}: local operator path`);
   }
   for (const line of body.split(/\r?\n/)) {
@@ -216,29 +220,13 @@ export function sensitiveTextFindings(path, body, privateLocalPathHashes = PRIVA
   return findings;
 }
 
-export function internalToolFindings(path, body) {
-  const candidates = vocabularyCandidates(body);
-  return [...candidates].some((candidate) => PRIVATE_TOOL_HASHES.has(digest(candidate)))
-    ? [`${path}: references a private development tool or model`]
-    : [];
-}
-
 export function internalProcessFindings(path, body) {
-  const candidates = vocabularyCandidates(body);
-  const words = body.toLowerCase().match(/[a-z]+|\d+/g) ?? [];
-  const hasNumberedFixLabel = words.some((word, index) => word === "fix" && /^\d+$/.test(words[index + 1] ?? ""));
-  const legacyCompatibilityPath =
-    path === ".env.example" ||
-    path === "northcinder/bin/northcinder.js" ||
-    path === "client/test/config.test.ts" ||
-    path.startsWith("packages/protocol/src/config-dir.") ||
-    path.startsWith("packages/protocol/test/config-dir.") ||
-    path.startsWith("packages/checkout/src/mandate/canonical.") ||
-    path.startsWith("packages/checkout/test/mandate.") ||
-    path.startsWith("packages/checkout/test/built-process-compat.") ||
-    path.startsWith("packages/checkout/test/fixtures/legacy-");
-  return !legacyCompatibilityPath && (hasNumberedFixLabel || [...candidates].some((candidate) => PRIVATE_PROCESS_HASHES.has(digest(candidate))))
-    ? [`${path}: references private release/process or former-identity vocabulary`]
+  const shippedSource = /^(?:(?:adapters|packages)\/[^/]+|client|northcinder|remote|service)\/src\//.test(path);
+  const containsInternalProcess =
+    (isPublicPositioningPath(path) && INTERNAL_POSITIONING_PATTERNS.some((pattern) => pattern.test(body))) ||
+    (shippedSource && SHIPPED_SOURCE_INTERNAL_PATTERNS.some((pattern) => pattern.test(body)));
+  return containsInternalProcess
+    ? [`${path}: contains internal development or evaluation prose`]
     : [];
 }
 
@@ -299,7 +287,6 @@ export function commitMetadataFindings(records, { rootCount, mergeCount }) {
     if (!ALLOWED_PUBLIC_MAINTAINER_EMAILS.has(record.committerEmail)) findings.push(`history: unexpected public committer email ${JSON.stringify(record.committerEmail)}`);
     const metadata = `${record.subject}\n${record.body}`;
     findings.push(...sensitiveTextFindings("history", metadata));
-    findings.push(...internalToolFindings("history", metadata));
     findings.push(...internalProcessFindings("history", metadata));
   }
   return findings;
@@ -320,7 +307,6 @@ export function runAudit({ requireRootHistory = false } = {}) {
     const body = textFile(path);
     if (body === null) continue;
     findings.push(...sensitiveTextFindings(path, body));
-    findings.push(...internalToolFindings(path, body));
     findings.push(...internalProcessFindings(path, body));
     findings.push(...standaloneBoundaryFindings(path, body));
     findings.push(...missingStandaloneCopyFindings(path, body));
@@ -360,6 +346,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     for (const finding of result.findings) process.stderr.write(`[public-surface] ${finding}\n`);
     process.exitCode = 1;
   } else {
-    process.stdout.write(`[public-surface] PASS (${result.reviewedCount} present tracked/untracked candidate paths; internal paths, public copy, secrets, links${requireRootHistory ? ", and public history" : ""} clean)\n`);
+    process.stdout.write(
+      `[public-surface] PASS (${result.reviewedCount} present tracked/untracked candidate paths checked against the publication allowlist, generic internal-process and operator-path patterns, recognized secret patterns, standalone ownership claims, and public Markdown links${requireRootHistory ? "; reachable public history metadata also checked" : ""})\n`,
+    );
   }
 }

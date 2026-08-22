@@ -90,7 +90,7 @@ async function main(): Promise<void> {
   const server = createNorthCinderMcpServer({
     service: createServiceClient({
       serviceUrl: config.serviceUrl,
-      clientKey: config.clientKey,
+      ...(config.clientKey !== undefined ? { clientKey: config.clientKey } : {}),
       timeoutMs: config.searchTimeoutMs,
     }),
     authorizations,
