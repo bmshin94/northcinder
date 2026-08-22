@@ -1,6 +1,6 @@
 {
   "name": "@northcinder/adapter-etsy",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "NorthCinder Etsy Open API v3 adapter for buyer-configured approved app access, with honest not_configured behavior",
   "license": "MIT",
   "type": "module",

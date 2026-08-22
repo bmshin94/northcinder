@@ -12,7 +12,7 @@ body:
     attributes:
       label: NorthCinder version
       description: Run `npx northcinder --version` or provide the commit SHA.
-      placeholder: 0.2.0
+      placeholder: 0.2.1
     validations:
       required: true
 

@@ -90,7 +90,7 @@ export function createEtsyAdapter(config: EtsyAdapterConfig = {}): StoreAdapter 
   const manifest: AdapterManifest = {
     id: ETSY_STORE_ID,
     name: "Etsy Open API v3",
-    version: "0.2.0",
+    version: "0.2.1",
     description:
       "Etsy Open API v3 adapter. App registration sits 'pending approval' until Etsy manually reviews it; fixture-driven until an approved key exists.",
     permissions: { allowedHosts: [API_HOST], userSession: false },

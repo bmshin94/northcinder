@@ -119,7 +119,33 @@ describe("bounded persisted decision state", () => {
       },
     });
     expect(state.profileEffects.applied[0]!.detail).toHaveLength(2_000);
-    expect(state.projectionWarnings).toContain("Profile effect details were shortened for the local Decisions display.");
+    expect(state.projectionWarnings).toContain(
+      "Some profile effects were shortened or omitted from the local decision record.",
+    );
+  });
+
+  it("warns when excess profile effects are omitted from the bounded projection", () => {
+    const state = projectDecisionState({
+      brief,
+      decisionReadiness: readiness,
+      interpreted: {
+        criteria: { text: "quiet café headphones" },
+        appliedProfileEntries: Array.from({ length: 65 }, (_, index) => ({
+          id: `pref_${index}`,
+          origin: "stated" as const,
+          kind: "ethics",
+          appliedTo: "ethicsFlags",
+          detail: `preference ${index}`,
+        })),
+        overriddenProfileEntries: [],
+        unmatchedQueryWords: [],
+      },
+    });
+
+    expect(state.profileEffects.applied).toHaveLength(64);
+    expect(state.projectionWarnings).toContain(
+      "Some profile effects were shortened or omitted from the local decision record.",
+    );
   });
 
   it("projects only bounded decision display facts and redacts buyer context", () => {

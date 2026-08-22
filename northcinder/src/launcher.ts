@@ -135,9 +135,9 @@ if (process.argv[2] === "--help" || process.argv[2] === "-h") {
 } else if (process.argv[2] === "service" && (process.argv.includes("--help") || process.argv.includes("-h"))) {
   process.stdout.write(SERVICE_USAGE);
 } else if (process.argv[2] === "service" && (process.argv.includes("--version") || process.argv.includes("-v"))) {
-  process.stdout.write("northcinder service 0.2.0\n");
+  process.stdout.write("northcinder service 0.2.1\n");
 } else if (process.argv.includes("--version") || process.argv.includes("-v")) {
-  process.stdout.write("northcinder 0.2.0\n");
+  process.stdout.write("northcinder 0.2.1\n");
 } else if (process.argv[2] !== undefined && process.argv[2] !== "init" && process.argv[2] !== "service") {
   process.stderr.write(`Unknown command: ${process.argv[2]}\n\n${ROOT_USAGE}`);
   process.exitCode = 1;

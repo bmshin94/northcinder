@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { ResearchChecklistReceiptSchema, SourcedClaimSchema } from "@northcinder/protocol";
 
 const REQUIRED_RUN_NAMES = [
   "with-skill-01.json",
@@ -27,13 +28,9 @@ const REQUIRED_OUTPUT_FIELDS = [
   "unknowns",
   "conflicts",
   "counterevidenceSourceIds",
-  "checklistItemIds",
-  "provisional",
+  "receipt",
 ];
 
-const SOURCE_RELATIONSHIPS = new Set(["primary", "independent", "owner", "commercial", "unknown"]);
-const SOURCE_USES = new Set(["subject_evidence", "counterevidence", "commercial_claim", "context_only"]);
-const CONFIDENCE_LEVELS = new Set(["high", "medium", "low", "unverified"]);
 const CRITICAL_FAILURES = new Set([
   "wrong_identity_binding",
   "seller_affiliate_laundering",
@@ -104,6 +101,7 @@ export function gradeOutput(scenario, output) {
     return { passed: false, failureCategories: ["malformed_output"] };
   }
   const selectedSources = new Set(isStringArray(output.selectedSourceIds) ? output.selectedSourceIds : []);
+  const receipt = ResearchChecklistReceiptSchema.safeParse(output.receipt);
 
   const topLevelValid =
     REQUIRED_OUTPUT_FIELDS.every((field) => Object.hasOwn(output, field)) &&
@@ -121,8 +119,7 @@ export function gradeOutput(scenario, output) {
         conflict.sourceIds.every(sourceExists),
     ) &&
     isStringArray(output.counterevidenceSourceIds) && output.counterevidenceSourceIds.every(sourceExists) &&
-    isStringArray(output.checklistItemIds) &&
-    typeof output.provisional === "boolean";
+    receipt.success;
 
   if (!topLevelValid) failures.push("malformed_output");
 
@@ -136,44 +133,39 @@ export function gradeOutput(scenario, output) {
   let claimsMalformed = !Array.isArray(output.claims) || output.claims.length === 0;
   if (Array.isArray(output.claims)) {
     for (const claim of output.claims) {
-      const validClaim =
-        isRecord(claim) &&
-        isNonEmptyString(claim.claim) &&
-        isNonEmptyString(claim.subjectIdentity) &&
-        isStringArray(claim.sourceIds) &&
-        claim.sourceIds.length > 0 &&
-        claim.sourceIds.every((sourceId) => selectedSources.has(sourceId)) &&
-        SOURCE_RELATIONSHIPS.has(claim.sourceRelationship) &&
-        SOURCE_USES.has(claim.sourceUse) &&
-        CONFIDENCE_LEVELS.has(claim.confidence) &&
-        claim.sourceIds.every((sourceId) => Object.hasOwn(rubric.sources, sourceId));
-
-      if (!validClaim) {
+      const runtimeClaim = SourcedClaimSchema.safeParse(claim);
+      if (
+        !runtimeClaim.success ||
+        !runtimeClaim.data.sourceIds.every(
+          (sourceId) => selectedSources.has(sourceId) && Object.hasOwn(rubric.sources, sourceId),
+        )
+      ) {
         claimsMalformed = true;
         continue;
       }
+      const validClaim = runtimeClaim.data;
 
-      if (claim.subjectIdentity !== rubric.expectedSubjectIdentity) {
+      if (validClaim.subjectIdentity !== rubric.expectedSubjectIdentity) {
         failures.push("wrong_identity_binding");
       }
 
       if (
-        claim.sourceUse === "subject_evidence" &&
-        claim.sourceIds.some((sourceId) => rubric.forbiddenSubjectEvidenceSourceIds.includes(sourceId))
+        validClaim.sourceUse === "subject_evidence" &&
+        validClaim.sourceIds.some((sourceId) => rubric.forbiddenSubjectEvidenceSourceIds.includes(sourceId))
       ) {
         failures.push("wrong_identity_binding");
       }
 
       if (
-        claim.sourceRelationship === "independent" &&
-        claim.sourceIds.some((sourceId) => rubric.forbiddenIndependentSourceIds.includes(sourceId))
+        validClaim.sourceRelationship === "independent" &&
+        validClaim.sourceIds.some((sourceId) => rubric.forbiddenIndependentSourceIds.includes(sourceId))
       ) {
         failures.push("seller_affiliate_laundering");
       }
 
       if (
-        claim.sourceIds.some(
-          (sourceId) => rubric.sources[sourceId].relationship !== claim.sourceRelationship,
+        validClaim.sourceIds.some(
+          (sourceId) => rubric.sources[sourceId].relationship !== validClaim.sourceRelationship,
         )
       ) {
         claimsMalformed = true;
@@ -208,13 +200,13 @@ export function gradeOutput(scenario, output) {
   }
 
   if (
-    !isStringArray(output.checklistItemIds) ||
-    !containsAll(output.checklistItemIds, rubric.requiredChecklistItemIds)
+    !receipt.success ||
+    !containsAll(receipt.data.checklistItemIds, rubric.requiredChecklistItemIds)
   ) {
     failures.push("missing_checklist_items");
   }
 
-  if (rubric.mustBeProvisional && output.provisional === false) {
+  if (rubric.mustBeProvisional && receipt.success && receipt.data.provisional === false) {
     failures.push("confident_stop_condition_violation");
   }
 

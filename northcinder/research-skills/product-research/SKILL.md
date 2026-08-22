@@ -76,6 +76,7 @@ Build `Claims` by iterating that ledger one relationship bucket at a time: set `
 
 ```json
 {
+  "lane": "product",
   "checklistIds": ["product.identity", "product.primary-facts"],
   "subjectIdentity": "Brand Model, 2026, women's wide, US 8, charcoal, SKU ABC-8W-CH",
   "claim": "The manual lists a removable 200 Wh battery.",
@@ -113,6 +114,7 @@ Resolved identity: **FictionalCo TrailCell 90, 2026 USB-C edition, 90 Wh, TC90-U
 ```json
 [
   {
+    "lane": "product",
     "checklistIds": ["product.identity", "product.primary-facts", "product.fit-compatibility"],
     "subjectIdentity": "FictionalCo TrailCell 90, 2026 USB-C edition, 90 Wh, TC90-USBC-2026",
     "claim": "The product manual states 90 Wh and USB-C PD output up to 65 W.",
@@ -127,6 +129,7 @@ Resolved identity: **FictionalCo TrailCell 90, 2026 USB-C edition, 90 Wh, TC90-U
     "unknowns": ["Laptop Q charging profile has not been verified against the exact 65 W port."]
   },
   {
+    "lane": "product",
     "checklistIds": ["product.independent-evidence", "product.failure-modes", "product.counterevidence"],
     "subjectIdentity": "FictionalCo TrailCell 90, 2026 USB-C edition, 90 Wh, TC90-USBC-2026",
     "claim": "An independent teardown found the enclosure glued shut, making field battery replacement impractical.",
@@ -141,6 +144,7 @@ Resolved identity: **FictionalCo TrailCell 90, 2026 USB-C edition, 90 Wh, TC90-U
     "unknowns": ["No long-term capacity-retention measurement was found within the budget."]
   },
   {
+    "lane": "product",
     "checklistIds": ["product.primary-facts", "product.commercial-claims"],
     "subjectIdentity": "FictionalCo TrailCell 90, 2026 USB-C edition, 90 Wh, TC90-USBC-2026",
     "claim": "The maker marketing page says TrailCell 90 is easy to repair in the field.",
@@ -155,6 +159,7 @@ Resolved identity: **FictionalCo TrailCell 90, 2026 USB-C edition, 90 Wh, TC90-U
     "unknowns": ["The page provides no parts, repair instructions, or field-repair evidence."]
   },
   {
+    "lane": "product",
     "checklistIds": ["product.commercial-claims"],
     "subjectIdentity": "FictionalCo TrailCell 90, 2026 USB-C edition, 90 Wh, TC90-USBC-2026",
     "claim": "Seller says it charges every USB-C laptop and is easily repairable.",
@@ -169,6 +174,7 @@ Resolved identity: **FictionalCo TrailCell 90, 2026 USB-C edition, 90 Wh, TC90-U
     "unknowns": ["Seller did not identify the Laptop Q power profile." ]
   },
   {
+    "lane": "product",
     "checklistIds": ["product.failure-modes", "product.counterevidence"],
     "subjectIdentity": "FictionalCo TrailCell 90, 2026 USB-C edition, 90 Wh, TC90-USBC-2026",
     "claim": "A 2025 TrailCell 60 teardown found corrosion after a wet-use test; it is a different model and cannot establish TrailCell 90 durability.",

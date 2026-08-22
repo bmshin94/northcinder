@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "northcinder",
   "display_name": "NorthCinder",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Advanced NorthCinder MCP client for a separately operated authenticated engine, with buyer-criteria ranking, exact-purchase approval, watches, and a local audit trail.",
   "long_description": "This bundle is the advanced client for a NorthCinder engine you operate separately. It is not the ordinary one-process local setup from npx northcinder init. NorthCinder ranks disclosed offers by buyer criteria, keeps sponsored offers below organic results, and requires explicit human confirmation for each exact purchase. Approval material is stored in the buyer's local account. An AI application granted file access as the same OS user may be able to read it; separate OS accounts are an optional isolation boundary.",
   "author": {

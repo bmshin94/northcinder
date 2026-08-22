@@ -1,6 +1,6 @@
 {
   "name": "@northcinder/watches",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "NorthCinder notify-only price watches with a buyer-run scheduler, local state, persisted at-least-once delivery, and constrained notification channels",
   "license": "MIT",
   "type": "module",

@@ -24,7 +24,7 @@ import { checkoutError, railExecutionRejection, type CheckoutRail, type RailCont
 
 export const ACP_API_VERSION = "2026-04-17";
 export const ACP_RAIL_ID = "acp";
-/** Honest agent self-identification for the allocated 0.2.0 release (same posture as the Amazon adapter's UA). */
+/** Honest agent self-identification for the allocated 0.2.1 release (same posture as the Amazon adapter's UA). */
 export const ACP_USER_AGENT = "NorthCinderAgent/0.2 (automated shopping agent; buyer-loyal)";
 
 /**

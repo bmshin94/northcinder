@@ -92,6 +92,7 @@ Every `conflicts` entry is an object with a `description` and every relevant `so
 
 ```json
 {
+  "lane": "seller",
   "checklistIds": ["seller.identity", "seller.policies"],
   "sellerIdentity": "Storefront name — https://store.example — merchant of record: Example Trading Ltd — buyer geography: US",
   "subjectIdentity": "Storefront name — https://store.example — merchant of record: Example Trading Ltd — buyer geography: US",
@@ -133,6 +134,7 @@ Internal source ledger: `brightsound-storefront → commercial`; `brightsound-re
 ```json
 [
   {
+    "lane": "seller",
     "checklistIds": ["seller.identity", "seller.policies", "seller.unknowns"],
     "sellerIdentity": "BrightSound Outlet — https://brightsound.example.test/ca — merchant of record: unknown — buyer geography: Canada",
     "subjectIdentity": "BrightSound Outlet — https://brightsound.example.test/ca — merchant of record: unknown — buyer geography: Canada",
@@ -148,6 +150,7 @@ Internal source ledger: `brightsound-storefront → commercial`; `brightsound-re
     "unknowns": ["Merchant of record and warranty responsibility are not disclosed."]
   },
   {
+    "lane": "seller",
     "checklistIds": ["seller.independent-outcomes", "seller.counterevidence", "seller.unknowns"],
     "sellerIdentity": "BrightSound Outlet — https://brightsound.example.test/ca — merchant of record: unknown — buyer geography: Canada",
     "subjectIdentity": "BrightSound Outlet — https://brightsound.example.test/ca — merchant of record: unknown — buyer geography: Canada",
@@ -163,6 +166,7 @@ Internal source ledger: `brightsound-storefront → commercial`; `brightsound-re
     "unknowns": ["No independent pattern was found within the remaining budget."]
   },
   {
+    "lane": "seller",
     "checklistIds": ["seller.commercial-claims"],
     "sellerIdentity": "BrightSound Outlet — https://brightsound.example.test/ca — merchant of record: unknown — buyer geography: Canada",
     "subjectIdentity": "BrightSound Outlet — https://brightsound.example.test/ca — merchant of record: unknown — buyer geography: Canada",
@@ -178,6 +182,7 @@ Internal source ledger: `brightsound-storefront → commercial`; `brightsound-re
     "unknowns": ["The storefront does not identify a legal merchant, and testimonials identify neither transactions nor independent collection method."]
   },
   {
+    "lane": "seller",
     "checklistIds": ["seller.identity", "seller.counterevidence", "seller.unknowns"],
     "sellerIdentity": "BrightSound Outlet — https://brightsound.example.test/ca — merchant of record: unknown — buyer geography: Canada",
     "subjectIdentity": "BrightSound Outlet — https://brightsound.example.test/ca — merchant of record: unknown — buyer geography: Canada",
@@ -193,6 +198,7 @@ Internal source ledger: `brightsound-storefront → commercial`; `brightsound-re
     "unknowns": ["No ownership link between the two similarly named businesses was found."]
   },
   {
+    "lane": "seller",
     "checklistIds": ["seller.identity", "seller.domain-business-records", "seller.unknowns"],
     "sellerIdentity": "BrightSound Outlet — https://brightsound.example.test/ca — merchant of record: unknown — buyer geography: Canada",
     "subjectIdentity": "BrightSound Outlet — https://brightsound.example.test/ca — merchant of record: unknown — buyer geography: Canada",
@@ -216,9 +222,8 @@ Unknown ledger: merchant of record, payment recipient, Canadian return recipient
 
 ```json
 {
-  "subjectIdentity": "BrightSound Outlet — https://brightsound.example.test/ca — merchant of record: unknown — buyer geography: Canada",
   "checklistItemIds": ["seller.identity", "seller.platform-separation", "seller.policies", "seller.fulfillment-contact", "seller.domain-business-records", "seller.independent-outcomes", "seller.commercial-claims", "seller.red-flags", "seller.counterevidence", "seller.unknowns", "seller.stop-receipt"],
-  "counterevidenceSourceIds": ["consumer-forum-complaint", "brightsound-lookalike-registry"],
+  "openChecklistItemIds": ["seller.identity", "seller.policies", "seller.independent-outcomes", "seller.unknowns", "seller.stop-receipt"],
   "provisional": true
 }
 ```

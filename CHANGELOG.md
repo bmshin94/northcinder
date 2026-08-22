@@ -2,11 +2,25 @@
 
 Notable public changes to NorthCinder are recorded here.
 
+## 2026-08-22: `northcinder` 0.2.1
+
+### Fixed
+
+- Unified research-skill examples, planning output, evaluation artifacts, and runtime evidence submission on the shared claim and checklist-receipt schemas.
+- Kept the default MCP decision text to the role-based summary while retaining additional finalists, rejections, reasons, and provenance in structured/widget detail.
+- Quarantined unsafe native offers individually so one hostile marketplace listing cannot suppress safe peers from the same store.
+- Removed lifecycle reminder activity from merchant-trust evidence and made lossy profile-effect projection visible.
+- Retracted the unsupported routine-use host/model claim; no combination is currently qualified.
+
+### Removed
+
+- Removed the undiscoverable local Decisions dashboard tab. Audit-backed decision state remains for exact attribution and confirmed outcomes; the MCP host remains the decision surface.
+
 ## 2026-08-22: `northcinder` 0.2.0
 
 ### Added
 
-- Added product and seller research resources, prompts, and bounded research plans. Routine-use support is qualified only for Codex CLI 0.147.0 with `gpt-5.6-luna` at medium reasoning over local STDIO MCP. Other host/model combinations remain unqualified.
+- Added product and seller research resources, prompts, and bounded research plans. No host/model combination is currently qualified for routine use; research remains provisional pending the documented gate.
 - Added strict exact-product, seller, landed-cost, return, warranty, and sourced-claim evidence with explicit conflicts and unknowns. Research evidence changes readiness and provenance, not rank.
 - Added a buyer decision surface with at most three role-based candidates by default. Additional finalists, rejections, raw reasons, and provenance remain available in expanded detail.
 - Added buyer-confirmed order outcomes, exact decision attribution, confirmation-gated preference proposals, and buyer-local return, warranty, and maintenance reminders. Reminders only notify.

@@ -236,6 +236,7 @@ export function createOrchestrator(
 
   function validateOffers(store: string, offers: Offer[]): { offers: Offer[] } | { error: StoreError } {
     const valid: Offer[] = [];
+    let unsafeCount = 0;
     for (const raw of offers) {
       const parsed = OfferSchema.safeParse(raw);
       if (!parsed.success) {
@@ -255,17 +256,21 @@ export function createOrchestrator(
         };
       }
       if (containsUnsafeAgentFacingText(parsed.data)) {
-        return {
-          error: storeError(store, "invalid_response", "store returned unsafe agent-facing content", {
-            retryable: false,
-            details: { category: "instruction_like_text" },
-          }),
-        };
+        unsafeCount += 1;
+        continue;
       }
       // buyer brief provenance: every offer leaves the orchestrator with a fetchedAt
       // stamp. An adapter's own stamp (e.g. honestly-older cached data) is
       // preserved; anything unstamped gets the fetch time.
       valid.push(parsed.data.fetchedAt !== undefined ? parsed.data : { ...parsed.data, fetchedAt: cfg.now() });
+    }
+    if (offers.length > 0 && unsafeCount === offers.length) {
+      return {
+        error: storeError(store, "invalid_response", "store returned unsafe agent-facing content", {
+          retryable: false,
+          details: { category: "instruction_like_text" },
+        }),
+      };
     }
     return { offers: valid };
   }

@@ -42,7 +42,7 @@ describe("local MCP service client error boundary", () => {
         return new Response(JSON.stringify({
           ok: true,
           service: "northcinder",
-          version: "0.2.0",
+          version: "0.2.1",
           discoverySources: [
             { store: "amazon", status: "not_configured" },
             { store: "ebay", status: "not_configured" },
@@ -74,7 +74,7 @@ describe("local MCP service client error boundary", () => {
         return new Response(JSON.stringify({
           ok: true,
           service: "northcinder",
-          version: "0.2.0",
+          version: "0.2.1",
           discoverySources: [],
         }));
       },
@@ -104,7 +104,7 @@ describe("local MCP service client error boundary", () => {
 
     await expect(client.health()).resolves.toEqual({
       ok: true,
-      data: { ok: true, service: "northcinder", version: "0.2.0" },
+      data: { ok: true, service: "northcinder", version: "0.2.1" },
     });
   });
 

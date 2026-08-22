@@ -6,7 +6,14 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { loadOrCreateMandateKeypair } from "@northcinder/checkout";
-import { rankOffers, type Offer, type SearchRankResponse, type TrustSignal } from "@northcinder/protocol";
+import {
+  ResearchChecklistReceiptSchema,
+  SourcedClaimSchema,
+  rankOffers,
+  type Offer,
+  type SearchRankResponse,
+  type TrustSignal,
+} from "@northcinder/protocol";
 import { createAuditLog } from "../src/audit-log.js";
 import { createAuthorizationStore } from "../src/authorization.js";
 import { createClientCheckout } from "../src/checkout-wiring.js";
@@ -132,6 +139,30 @@ describe("canonical research skill loader", () => {
       question: "Resolve the exact model, generation, size, and variant before binding any claim.",
       required: true,
     });
+  });
+
+  it("keeps every canonical JSON claim and checklist receipt valid at the runtime evidence seam", () => {
+    for (const skill of loadResearchSkillPack()) {
+      const blocks = [...skill.content.matchAll(/```json\n([\s\S]*?)\n```/g)].map((match) =>
+        JSON.parse(match[1]!) as unknown,
+      );
+      const records = blocks.flatMap((block) => (Array.isArray(block) ? block : [block]));
+      const claims = records.filter(
+        (record): record is Record<string, unknown> =>
+          typeof record === "object" && record !== null && "claim" in record,
+      );
+      const receipts = records.filter(
+        (record): record is Record<string, unknown> =>
+          typeof record === "object" && record !== null && "checklistItemIds" in record,
+      );
+
+      expect(claims.length).toBeGreaterThan(0);
+      expect(receipts.length).toBeGreaterThan(0);
+      for (const claim of claims) expect(SourcedClaimSchema.safeParse(claim).success).toBe(true);
+      for (const receipt of receipts) {
+        expect(ResearchChecklistReceiptSchema.safeParse(receipt).success).toBe(true);
+      }
+    }
   });
 
   it("fails visibly when either exact canonical file is missing", () => {
@@ -285,7 +316,9 @@ describe("research skills over a real MCP transport", () => {
       claimFormat: {
         identityField: "sellerIdentity",
         requiredFields: [
+          "lane",
           "checklistIds",
+          "subjectIdentity",
           "sellerIdentity",
           "claim",
           "sourceIds",

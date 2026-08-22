@@ -51,7 +51,7 @@
  * HTML-escapes at render (defense in depth, not the only layer). Any
  * record that isn't shaped the way we expect is skipped, never thrown on.
  */
-import type { LifecycleReminder, Merchant, Order, PurchaseOutcome, TrustEvidence } from "@northcinder/protocol";
+import type { Merchant, Order, PurchaseOutcome, TrustEvidence } from "@northcinder/protocol";
 import type { OrderRecord } from "@northcinder/checkout";
 
 /** Distinct from every service-side evidence `source` (e.g. "seed-list", "rdap", "tranco"). */
@@ -70,7 +70,6 @@ export interface LocalTrustEvidenceInput {
   graphOrders?: readonly Order[];
   /** Confirmed buyer-local outcomes linked only through a matching completed checkout order id. */
   outcomes?: readonly PurchaseOutcome[];
-  lifecycleReminders?: readonly LifecycleReminder[];
   now?: () => Date;
 }
 
@@ -85,7 +84,7 @@ function isoDateFromMs(ms: number): string {
 
 export function deriveLocalTrustEvidence(input: LocalTrustEvidenceInput): TrustEvidence[] {
   try {
-    const { merchant, checkoutOrders, graphOrders = [], outcomes = [], lifecycleReminders = [] } = input;
+    const { merchant, checkoutOrders, graphOrders = [], outcomes = [] } = input;
     if (!isNonEmptyString(merchant?.id) || !isNonEmptyString(merchant?.domain)) return [];
 
     let completedCount = 0;
@@ -145,11 +144,6 @@ export function deriveLocalTrustEvidence(input: LocalTrustEvidenceInput): TrustE
       const delivery = count((outcome) => outcome.merchantDelivery);
       const support = count((outcome) => outcome.merchantSupport);
       evidence.push({ source: LOCAL_TRUST_EVIDENCE_SOURCE, detail: `your confirmed local outcomes: ${states}${delivery ? `; delivery ${delivery}` : ""}${support ? `; support ${support}` : ""} (local orders)`, fetchedAt: now().toISOString() });
-    }
-    const matchedLifecycle = lifecycleReminders.filter((reminder) => outcomeEligibleOrderIds.has(reminder.orderId)).slice(0, 20);
-    if (matchedLifecycle.length > 0) {
-      const sent = matchedLifecycle.filter((reminder) => reminder.reminderSentAt !== undefined).length;
-      evidence.push({ source: LOCAL_TRUST_EVIDENCE_SOURCE, detail: `your lifecycle reminders: ${matchedLifecycle.length - sent} pending; ${sent} sent (local orders)`, fetchedAt: now().toISOString() });
     }
     if (evidence.length === 0) return [];
     return evidence;

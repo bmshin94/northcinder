@@ -43,6 +43,7 @@ import {
   requiresNativeRevalidation,
   SearchRankResponseSchema,
   SearchQuerySchema,
+  SourcedClaimSchema,
   StoreStatusSchema,
   TrustEvidenceSchema,
   TrustSignalSchema,
@@ -97,7 +98,7 @@ export const BRIEF_WIDGET_TOOL_META: Record<string, unknown> = {
 };
 
 export const NORTHCINDER_MCP_SERVER_NAME = BRAND_NAME;
-export const NORTHCINDER_MCP_SERVER_VERSION = "0.2.0";
+export const NORTHCINDER_MCP_SERVER_VERSION = "0.2.1";
 
 /**
  * Loud, exact warning attached whenever the configured engine's returned order fails
@@ -250,32 +251,6 @@ function profileEntryLine(e: ProfileEntry): string {
   const marker =
     origin === "stated" ? "[STATED]" : "[INFERRED — auto-learned, delete anytime via update_profile deleteIds]";
   return `  ${marker} ${id} (${kind}): ${JSON.stringify(fields)} — from ${source} at ${createdAt}`;
-}
-
-function rankedResultLine(r: RankedResult, index: number): string {
-  const o = r.offer;
-  const placementFlag =
-    o.acquisition?.placement === "unknown"
-      ? "PLACEMENT NOT CONFIRMED (de-prioritized)"
-      : o.sponsored
-        ? "SPONSORED (de-prioritized)"
-        : null;
-  const flags = [placementFlag, o.availability].filter(Boolean).join(", ");
-  const reasons = r.reasons
-    .map((reason) =>
-      `      - [${reason.criterion}] ${
-        o.acquisition?.placement === "unknown" && reason.criterion === "sponsored_deprioritization"
-          ? "placement not confirmed: treated like sponsored and ranked below confirmed organic offers"
-          : reason.detail
-      }`,
-    )
-    .join("\n");
-  return [
-    `  ${index + 1}. ${o.product.title}`,
-    `      ${money(o.price)} from ${o.merchant.name} (${o.merchant.id}) via ${o.sourceStore} — ${flags}`,
-    `      offerId: ${o.id} | score: ${r.score.toFixed(2)}`,
-    reasons,
-  ].join("\n");
 }
 
 const MERGEABLE_EVIDENCE_FIELDS = [
@@ -447,6 +422,9 @@ export function createNorthCinderMcpServer(deps: NorthCinderMcpServerDeps): McpS
     async ({ skill: requestedSkill, request, subject }) => {
       const skill = researchSkills.find((candidate) => candidate.id === requestedSkill)!;
       const identityField = skill.id === "product-research" ? "subjectIdentity" : "sellerIdentity";
+      const requiredFields = Object.keys(SourcedClaimSchema.shape).filter(
+        (field) => field !== "sellerIdentity" || skill.id === "seller-research",
+      );
       const plan = {
         skill: skill.id,
         skillResourceUri: skill.resourceUri,
@@ -456,20 +434,7 @@ export function createNorthCinderMcpServer(deps: NorthCinderMcpServerDeps): McpS
         limits: researchLimitsFromContent(skill.content, skill.id),
         claimFormat: {
           identityField,
-          requiredFields: [
-            "checklistIds",
-            identityField,
-            "claim",
-            "sourceIds",
-            "sourceRelationship",
-            "sourceUse",
-            "sourceUrl",
-            "sourceType",
-            "observedAt",
-            "confidence",
-            "conflicts",
-            "unknowns",
-          ],
+          requiredFields,
         },
       };
       return success(plan);
@@ -538,16 +503,14 @@ export function createNorthCinderMcpServer(deps: NorthCinderMcpServerDeps): McpS
       }
     }
     let outcomes: PurchaseOutcome[] = [];
-    let lifecycleReminders: LifecycleReminder[] = [];
     if (deps.orderGraph) {
       try {
         outcomes = deps.orderGraph.listOutcomes();
-        lifecycleReminders = deps.orderGraph.listLifecycleReminders();
       } catch {
         outcomes = [];
       }
     }
-    return deriveLocalTrustEvidence({ merchant, checkoutOrders, graphOrders, outcomes, lifecycleReminders });
+    return deriveLocalTrustEvidence({ merchant, checkoutOrders, graphOrders, outcomes });
   }
 
   // MCP Apps widget (SEP-1865): the brief comparison card, predeclared as a
@@ -724,15 +687,7 @@ export function createNorthCinderMcpServer(deps: NorthCinderMcpServerDeps): McpS
     seenBriefs.set(searchId, brief);
     decisionSearches.set(searchId, { data, brief, evidence: [], decisionReadiness, interpreted });
 
-    const statusLines = storeStatuses
-      .map((s) =>
-        s.ok
-          ? `  ✓ ${s.store}: ${s.offerCount} offer(s) in ${s.durationMs}ms`
-          : `  ✗ ${s.store}: ${s.error.code} — ${s.error.message}`,
-      )
-      .join("\n");
     const text = [
-      `${results.length} offer(s), ranked by YOUR criteria only (sponsored always labeled + last):`,
       ...(continuedFrom !== undefined ? [`Continued from search ${continuedFrom}.`] : []),
       ...(browserObservationReport !== undefined
         ? [
@@ -741,10 +696,6 @@ export function createNorthCinderMcpServer(deps: NorthCinderMcpServerDeps): McpS
         : []),
       ...interpretedQueryLines(interpreted, searchId),
       ...rankingVerificationLines(verification),
-      ...results.map((r, i) => rankedResultLine(r, i)),
-      ``,
-      `Store statuses:`,
-      statusLines,
       ...(coverage.verified === false
         ? [`WARNING: configured engine coverage mismatch — missing: ${coverage.missing.join(", ") || "none"}; unexpected: ${coverage.unexpected.join(", ") || "none"}.`]
         : coverage.verified === "not_applicable"
@@ -835,7 +786,7 @@ export function createNorthCinderMcpServer(deps: NorthCinderMcpServerDeps): McpS
         "Search for products across the configured stores (Shopify storefronts, eBay, Etsy, Amazon) and get back " +
         "offers ranked ONLY by the buyer's criteria (price, spec match, delivery, availability, merchant trust, ethics). " +
         "No seller can pay for position: sponsored listings are always labeled and always ranked below every organic " +
-        "result. Every result carries machine-readable `reasons` explaining its rank — show them to the user. " +
+        "result. Every result carries machine-readable `reasons` explaining its rank in structured detail. " +
         "Per-store failures never fail the search; they are reported in `storeStatuses` (e.g. a store that is not " +
         "configured says so honestly). Results from this search are the ONLY offers that can be purchased afterwards. " +
         "Every response is verified locally: this client re-runs the OPEN rankOffers over the returned offers + trust " +
@@ -846,12 +797,9 @@ export function createNorthCinderMcpServer(deps: NorthCinderMcpServerDeps): McpS
         "echoes exactly how the query was read (post-merge criteria, which profile entries applied by id+origin, " +
         "which were overridden, and which query words matched no structured criterion): show this reading to the " +
         "user so they can correct it. " +
-        "The structured output also carries `brief` — the buyer's brief (buyer brief): ≤5 finalists with whyThis phrased " +
-        "against the user's criteria, computed tradeoffs, per-cell provenance (source URL + fetchedAt), a rejected " +
-        "appendix with eliminating criteria, and per-store coverage listing EVERY registered store (blocked and " +
-        "unconfigured stores included — silent skipping forbidden). It is composed by code from the ranked results, " +
-        "never generated. Show it to the user (hosts with MCP Apps render the linked widget; otherwise use the " +
-        "markdown rendering appended to this tool's text). " +
+        "The default `brief` shows at most three role-based candidates. Additional finalists, rejections, raw reasons, " +
+        "provenance, and complete coverage remain in structured/widget expansion instead of being duplicated in the " +
+        "default text. It is composed by code from the ranked results, never generated. " +
         ELICITATION_GUIDANCE,
       _meta: BRIEF_WIDGET_TOOL_META,
       inputSchema: {
@@ -1139,12 +1087,9 @@ export function createNorthCinderMcpServer(deps: NorthCinderMcpServerDeps): McpS
     {
       title: "Re-emit the buyer's brief for a previous search",
       description:
-        "Re-emit the buyer's brief for a searchId returned by search_products in this session: ≤5 finalists (never " +
-        "padded) with whyThis phrased against the user's criteria, computed tradeoffs vs the other finalists, " +
-        "per-cell provenance (source URL + fetchedAt), the rejected appendix with the criteria that eliminated each " +
-        "offer, and per-store coverage listing EVERY registered store — blocked and unconfigured stores included, " +
-        "silent skipping forbidden. The brief is composed by code from the ranked results, never generated; the " +
-        "text content is its deterministic markdown rendering (the universal fallback for non-Apps hosts).",
+        "Re-emit the deterministic buyer's brief for a searchId returned by search_products in this session. The " +
+        "default text shows at most three role-based candidates; additional finalists, rejections, raw reasons, " +
+        "provenance, and complete store coverage remain available in structured/widget expansion.",
       _meta: BRIEF_WIDGET_TOOL_META,
       inputSchema: {
         searchId: z.string().min(1).describe("searchId from a search_products result in this session"),

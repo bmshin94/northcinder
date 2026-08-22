@@ -135,7 +135,7 @@ export function createEbayAdapter(config: EbayAdapterConfig = {}): StoreAdapter 
   const manifest: AdapterManifest = {
     id: EBAY_STORE_ID,
     name: "eBay Buy Browse API",
-    version: "0.2.0",
+    version: "0.2.1",
     description:
       "eBay buyer-side Browse API adapter. Sandbox works with any dev keypair; production requires eBay Partner Network approval.",
     // Scoped to the host of the CONFIGURED instance only — a sandbox-mode

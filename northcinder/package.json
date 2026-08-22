@@ -1,6 +1,6 @@
 {
   "name": "northcinder",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "NorthCinder is a buyer-run MCP shopping agent that compares evidence, explains tradeoffs, and asks before purchase",
   "license": "MIT",
   "type": "module",

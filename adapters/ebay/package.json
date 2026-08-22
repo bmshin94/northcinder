@@ -1,6 +1,6 @@
 {
   "name": "@northcinder/adapter-ebay",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "NorthCinder eBay Browse API adapter for buyer-configured approved Buy API access, with no affiliate ranking input or checkout",
   "license": "MIT",
   "type": "module",

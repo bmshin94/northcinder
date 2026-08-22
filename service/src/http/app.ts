@@ -186,7 +186,7 @@ export function createApp(deps: ServiceDeps): Hono<Env> {
     c.json({
       ok: true,
       service: "northcinder",
-      version: "0.2.0",
+      version: "0.2.1",
       ...(deps.auth.kind === "local-loopback" && deps.discoverySources !== undefined
         ? { discoverySources: deps.discoverySources }
         : {}),

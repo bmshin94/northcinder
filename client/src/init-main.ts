@@ -308,7 +308,7 @@ export function emittedMcpEnvironment(result: InitResult): Record<string, string
  * expose the native-search and host-discovery handoff tools, and exit cleanly. */
 export async function probeEmittedMcpServer(result: InitResult): Promise<void> {
   const entry = emittedMcpEntry(result);
-  const client = new Client({ name: "northcinder-init-readiness", version: "0.2.0" });
+  const client = new Client({ name: "northcinder-init-readiness", version: "0.2.1" });
   const transport = new StdioClientTransport({
     command: entry.command,
     args: entry.args,

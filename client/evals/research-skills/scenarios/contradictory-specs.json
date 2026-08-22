@@ -18,11 +18,11 @@
       "format": "json_only",
       "instruction": "Write one raw JSON object only, with no Markdown fence or surrounding status envelope. Copy scenarioId and requiredSubjectIdentity exactly. Every factual claim must cite supplied source IDs and classify source relationship and use.",
       "requiredSubjectIdentity": "SolaceCell Trek 20 power bank, model ST20-B, 2026 revision",
-      "requiredTopLevelFields": ["scenarioId", "subjectIdentity", "selectedSourceIds", "claims", "unknowns", "conflicts", "counterevidenceSourceIds", "checklistItemIds", "provisional"],
-      "claimFields": { "claim": "non-empty string", "subjectIdentity": "exact requiredSubjectIdentity", "sourceIds": "non-empty array of supplied source IDs", "sourceRelationship": "primary | independent | owner | commercial | unknown", "sourceUse": "subject_evidence | counterevidence | commercial_claim | context_only", "confidence": "high | medium | low | unverified" },
+      "requiredTopLevelFields": ["scenarioId", "subjectIdentity", "selectedSourceIds", "claims", "unknowns", "conflicts", "counterevidenceSourceIds", "receipt"],
+      "claimFields": { "lane": "product", "checklistIds": "non-empty array of product.* IDs", "claim": "non-empty string", "subjectIdentity": "exact requiredSubjectIdentity", "sourceIds": "non-empty array of supplied source IDs", "sourceRelationship": "primary | independent | owner | commercial | unknown", "sourceUse": "subject_evidence | counterevidence | commercial_claim | context_only", "sourceUrl": "HTTPS source URL", "sourceType": "non-empty source type", "observedAt": "ISO datetime", "confidence": "high | medium | low | unverified", "conflicts": "array", "unknowns": "array" },
       "conflictFields": { "description": "non-empty string", "sourceIds": "non-empty array of supplied source IDs" },
-      "arrayFields": { "selectedSourceIds": "source IDs actually used", "unknowns": "plain-language unknowns", "conflicts": "conflict objects", "counterevidenceSourceIds": "source IDs used for downside or contrary evidence", "checklistItemIds": "canonical skill checklist IDs completed or kept open" },
-      "provisional": "boolean"
+      "arrayFields": { "selectedSourceIds": "source IDs actually used", "unknowns": "plain-language unknowns", "conflicts": "conflict objects", "counterevidenceSourceIds": "source IDs used for downside or contrary evidence" },
+      "receipt": { "checklistItemIds": "all product.* IDs considered", "openChecklistItemIds": "open product.* IDs", "provisional": "boolean" }
     }
   },
   "rubric": {

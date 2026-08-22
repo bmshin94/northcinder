@@ -37,30 +37,38 @@ function offer(id: string, amount: number, opts: { sponsored?: boolean } = {}): 
 }
 
 const OFFERS = [offer("o1", 9800), offer("o2", 10500), offer("o3", 5000, { sponsored: true })];
+const FIVE_OFFERS = Array.from({ length: 5 }, (_, index) =>
+  offer(`five-${index + 1}`, 10_000 + index * 500),
+);
 
-const TRUST: Record<string, TrustSignal> = Object.fromEntries(
-  OFFERS.map((o) => [
+function trustFor(offers: Offer[]): Record<string, TrustSignal> {
+  return Object.fromEntries(offers.map((o) => [
     o.merchant.id,
     {
       merchantId: o.merchant.id,
       level: "unknown" as const,
       evidence: [{ source: "seed-list", detail: "merchant not in the seed trust list" }],
     },
-  ]),
-);
+  ]));
+}
+
+const TRUST = trustFor(OFFERS);
 
 /** Fake service whose storeStatuses include a BLOCKED and a NOT_CONFIGURED store. */
 function fakeService(): NorthCinderServiceClient {
   return {
     async search(query) {
-      const offers = query.text === "required delivery missed"
-        ? OFFERS.map((candidate) => ({ ...candidate, shipping: { deliveryBy: "2026-12-31" } }))
-        : OFFERS;
+      const offers = query.text === "five candidates"
+        ? FIVE_OFFERS
+        : query.text === "required delivery missed"
+          ? OFFERS.map((candidate) => ({ ...candidate, shipping: { deliveryBy: "2026-12-31" } }))
+          : OFFERS;
+      const trust = query.text === "five candidates" ? trustFor(FIVE_OFFERS) : TRUST;
       const data: SearchRankResponse = {
-        trustSignals: TRUST,
-        results: rankOffers(offers, query, { trust: TRUST }),
+        trustSignals: trust,
+        results: rankOffers(offers, query, { trust }),
         storeStatuses: [
-          { store: "ebay", ok: true, offerCount: 3, durationMs: 12 },
+          { store: "ebay", ok: true, offerCount: offers.length, durationMs: 12 },
           {
             store: "amazon",
             ok: false,
@@ -178,6 +186,21 @@ describe("buyer's brief tools + MCP Apps widget wiring (buyer brief)", () => {
     expect(text).toContain('# northcinder buyer\'s brief — "wool sneakers"');
     expect(text).toContain("| amazon | blocked (blocked: bot check triggered) | 0 |");
     expect(text).toContain("_Every registered store is listed above — nothing was silently skipped._");
+  });
+
+  it("keeps non-summary finalists out of the default search_products text", async () => {
+    const result = await client.callTool({ name: "search_products", arguments: { text: "five candidates" } });
+    const structured = result.structuredContent as { brief: BuyersBrief };
+    const text = (result.content as Array<{ type: string; text: string }>)[0]!.text;
+    const summaryKeys = new Set(
+      structured.brief.decisionSummary.map((entry) => `${entry.sourceStore}:${entry.offerId}`),
+    );
+    const nonSummary = structured.brief.finalists.filter(
+      (finalist) => !summaryKeys.has(`${finalist.sourceStore}:${finalist.offerId}`),
+    );
+
+    expect(nonSummary.length).toBeGreaterThan(0);
+    for (const finalist of nonSummary) expect(text).not.toContain(finalist.title);
   });
 
   it("get_buyers_brief re-emits the SAME brief for the searchId, with the markdown rendering as text", async () => {

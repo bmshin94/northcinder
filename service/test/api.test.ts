@@ -674,7 +674,7 @@ describe("HTTP API — live boot on an ephemeral port", () => {
   it("GET /health is open and reports ok", async () => {
     const res = await fetch(`${baseUrl}/health`);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, service: "northcinder", version: "0.2.0" });
+    expect(await res.json()).toEqual({ ok: true, service: "northcinder", version: "0.2.1" });
   });
 });
 

@@ -13,7 +13,7 @@ import {
 const validManifest = {
   id: "reference",
   name: "Reference in-memory adapter",
-  version: "0.2.0",
+  version: "1.2.3",
   permissions: { allowedHosts: [], userSession: false },
   capabilities: { checkout: false },
 };

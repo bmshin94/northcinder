@@ -1,6 +1,6 @@
 {
   "name": "@northcinder/profile",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "NorthCinder buyer-local attributed preferences with current-query precedence, scopes, expiry, and confirmation-gated inference",
   "license": "MIT",
   "type": "module",

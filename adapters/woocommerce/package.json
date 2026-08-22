@@ -1,6 +1,6 @@
 {
   "name": "@northcinder/adapter-woocommerce",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "NorthCinder WooCommerce adapter for buyer-configured hosts that expose the public Store API; coverage is reported per host",
   "license": "MIT",
   "type": "module",

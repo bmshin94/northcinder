@@ -42,7 +42,7 @@ NorthCinder includes separate research guides for products and sellers. Before d
 
 If the sources disagree or do not identify the exact product or seller, the result stays provisional. Research can decide whether an offer is ready to compare, but it cannot add ranking points.
 
-So far, we have tested this workflow end to end with Codex CLI 0.147.0, `gpt-5.6-luna`, medium reasoning, and local STDIO MCP. We do not yet make the same claim for other hosts or models.
+No host and model combination is currently qualified for routine research use. Treat every research result as provisional until the buyer checks its identity, sources, conflicts, and unknowns.
 
 ## Buying stays a separate decision
 

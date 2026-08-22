@@ -1,6 +1,6 @@
 {
   "name": "@northcinder/adapter-shopify",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "NorthCinder Shopify UCP Catalog adapter: buyer-profiled Global and Storefront Catalog discovery",
   "license": "MIT",
   "type": "module",

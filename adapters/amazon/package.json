@@ -1,6 +1,6 @@
 {
   "name": "@northcinder/adapter-amazon",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Read-only NorthCinder Amazon comparison adapter using a browser profile controlled by the buyer; no checkout capability",
   "license": "MIT",
   "type": "module",

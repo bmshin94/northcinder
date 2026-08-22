@@ -47,7 +47,7 @@ import { interpretQuery } from "@northcinder/profile";
 import type { NorthCinderServiceClient } from "./service-client.js";
 
 export const NORTHCINDER_REMOTE_MCP_SERVER_NAME = "northcinder-remote";
-export const NORTHCINDER_REMOTE_MCP_SERVER_VERSION = "0.2.0";
+export const NORTHCINDER_REMOTE_MCP_SERVER_VERSION = "0.2.1";
 
 export interface NorthCinderRemoteMcpServerDeps {
   service: NorthCinderServiceClient;

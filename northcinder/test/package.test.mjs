@@ -11,7 +11,7 @@ const packageReadme = readFileSync(new URL("../README.md", import.meta.url), "ut
 const rootReadme = readFileSync(new URL("../../README.md", import.meta.url), "utf8");
 
 assert.equal(manifest.name, "northcinder", "public npm coordinate must match the NorthCinder CLI name");
-assert.equal(manifest.version, "0.2.0", "NorthCinder public package must use the allocated version");
+assert.equal(manifest.version, "0.2.1", "NorthCinder public package must use the allocated version");
 assert.deepEqual(manifest.bin, { northcinder: "bin/northcinder.js" }, "package and executable must share the canonical slug");
 for (const [label, readme] of [["packed README", packageReadme], ["root README", rootReadme]]) {
   assert.match(readme, /npx northcinder init/, `${label} must use the public npm coordinate`);

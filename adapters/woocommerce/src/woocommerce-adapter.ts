@@ -59,7 +59,7 @@ export function createWoocommerceAdapter(config: WoocommerceAdapterConfig = {}):
   const manifest: AdapterManifest = {
     id: WOOCOMMERCE_STORE_ID,
     name: "WooCommerce Store API",
-    version: "0.2.0",
+    version: "0.2.1",
     description:
       "WooCommerce core's public, unauthenticated Store API (wp-json/wc/store/v1) — live by default, no credentials, per-store fan-out.",
     permissions: { allowedHosts: [...stores], userSession: false },

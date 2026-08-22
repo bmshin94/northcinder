@@ -64,7 +64,7 @@ export function createReferenceAdapter(): StoreAdapter {
   const manifest: AdapterManifest = {
     id: STORE_ID,
     name: "Reference in-memory adapter",
-    version: "0.2.0",
+    version: "0.2.1",
     description: "In-memory fixture adapter; the conformance harness's passing reference.",
     permissions: { allowedHosts: [], userSession: false },
     capabilities: { checkout: false },

@@ -119,7 +119,7 @@ export function createShopifyAdapter(config: ShopifyAdapterConfig = {}): StoreAd
   const manifest: AdapterManifest = {
     id: STORE_ID,
     name: "Shopify UCP Catalog",
-    version: "0.2.0",
+    version: "0.2.1",
     description:
       "Shopify Global and Storefront Catalog UCP, using a buyer-controlled HTTPS UCP agent profile for every anonymous catalog call.",
     permissions: {

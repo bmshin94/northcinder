@@ -24,7 +24,7 @@ describe("launcher-owned local engine runtime", () => {
     expect(await health.json()).toEqual({
       ok: true,
       service: "northcinder",
-      version: "0.2.0",
+      version: "0.2.1",
       discoverySources: [
         { store: "amazon", status: "not_configured" },
         { store: "ebay", status: "not_configured" },

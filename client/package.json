@@ -1,6 +1,6 @@
 {
   "name": "@northcinder/client",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Buyer-run NorthCinder MCP client for strict commerce evidence, three-candidate decisions, exact-purchase approval, local outcomes, reminders, and audit",
   "license": "MIT",
   "type": "module",

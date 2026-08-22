@@ -26,7 +26,6 @@ import { BRAND_NAME } from "../src/brand.js";
 import { createAuthorizationStore, type AuthorizationStore } from "../src/authorization.js";
 import { composeApprovalPush, createLocalUiApp, generateSessionToken, startLocalUi } from "../src/local-ui.js";
 import { createOrderStore } from "../src/order-store.js";
-import type { PersistedDecisionState } from "../src/decision-state.js";
 import { renderOrderTuple } from "../src/order-tuple.js";
 import { createNorthCinderMcpServer } from "../src/server.js";
 import type { NorthCinderServiceClient } from "../src/service-client.js";
@@ -88,42 +87,6 @@ function form(fields: Record<string, string>): { method: "POST"; headers: Record
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams(fields).toString(),
-  };
-}
-
-function decisionState(searchId = "search_decision"): PersistedDecisionState {
-  return {
-    searchId,
-    request: "Black wool runners under $130",
-    criteria: { text: "Black wool runners under $130", maxPrice: { amount: 13000, currency: "USD" } },
-    candidates: [
-      {
-        role: "top_fit", roleReason: "Best fit for the stated criteria", rank: 1, sourceStore: "shopify", offerId: "decision-1",
-        title: "Wool Runner", url: "https://store.example/wool-runner", merchant: { id: "store.example", name: "Store <script>" },
-        imageUrl: "https://store.example/wool-runner.png",
-        productIdentity: { canonical: "Wool Runner — natural black — EU 43", variant: "natural black — EU 43", identifiers: [] },
-        price: { amount: 12000, currency: "USD" }, availability: "in_stock", sponsored: false,
-        sellerState: "trusted", freshness: { status: "known", observedAt: "2026-08-20T10:00:00.000Z" }, verificationState: "merchant_verified",
-        decisionStatus: "provisional", importantUnknowns: ["Confirm exact size"], decisiveDownside: "Delivery estimate is not confirmed",
-        whyThis: ["Matches material and budget"], tradeoffs: [{ dimension: "delivery", detail: "No delivery date" }],
-      },
-      {
-        role: "budget_or_different", roleReason: "Lower price with an evidence tradeoff", rank: 2, sourceStore: "shopify", offerId: "decision-2",
-        title: "Budget Runner", url: "javascript:alert(1)", merchant: { id: "other.example", name: "Other" },
-        imageUrl: "javascript:alert(2)",
-        price: { amount: 9900, currency: "USD" }, availability: "in_stock", sponsored: true,
-        sellerState: "unknown", freshness: { status: "unknown" }, verificationState: "agent_observed",
-        decisionStatus: "provisional", importantUnknowns: ["Seller history unknown"], decisiveDownside: "Sponsored placement is disclosed",
-        whyThis: ["Lower initial price"], tradeoffs: [{ dimension: "trust", detail: "Trust evidence unknown" }],
-      },
-    ],
-    coverage: [{ store: "shopify", status: "searched", offerCount: 2 }, { store: "etsy", status: "blocked", offerCount: 0, detail: "fixture block" }],
-    unresolvedResearchQuestions: ["Confirm the exact size before buying."],
-    readiness: { status: "provisional", reasons: ["Exact identity remains unconfirmed"] },
-    projectionWarnings: ["Candidate names were shortened for the local Decisions display."],
-    chosenOffer: null,
-    outcome: null,
-    profileEffects: { applied: [], overridden: [] },
   };
 }
 
@@ -197,65 +160,15 @@ describe("session-token gate — EVERY route, reads AND mutations", () => {
   });
 });
 
-describe("dashboard — Decisions read model", () => {
-  it("renders newest-first bounded decision records with native details, safe links, and explicit no-outcome copy", async () => {
-    const { store, auditPath } = makeHarness();
-    const app = createLocalUiApp({
-      sessionToken: TOKEN,
-      authorizations: store,
-      audit: { path: auditPath, append() {} },
-      readDecisionStates(path) {
-        expect(path).toBe(auditPath);
-        return { states: [decisionState("newest"), decisionState("older")], invalidRecords: 1 };
-      },
-    });
+describe("dashboard reduction", () => {
+  it("does not expose an undiscoverable Decisions tab", async () => {
+    const { app } = makeHarness();
     const html = await (await app.request(`/dashboard?t=${TOKEN}&tab=decisions`)).text();
-    expect(html).toContain('href="/dashboard?t=' + TOKEN + '&tab=decisions"');
-    expect(html).toContain('aria-current="page"');
-    expect(html.indexOf("newest")).toBeLessThan(html.indexOf("older"));
-    expect(html).toContain("TOP FIT");
-    expect(html).toContain("BUDGET OR DIFFERENT");
-    expect(html).toContain("No candidate has been chosen.");
-    expect(html).toContain("No lifecycle outcome is recorded.");
-    expect(html).toContain("1 invalid decision record was skipped");
-    expect(html).toContain('<details class="decision-row">');
-    expect(html).toContain("Details and evidence");
-    expect(html).toContain('href="https://store.example/wool-runner"');
-    expect(html).toContain('href="https://store.example/wool-runner.png"');
-    expect(html).toContain('>product image</a>');
-    expect(html).toContain("natural black — EU 43");
-    expect(html).toContain("Variant</dt><dd>unknown");
-    expect(html).toContain("Candidate names were shortened for the local Decisions display.");
-    expect(html).not.toContain('href="javascript:');
-    expect(html).not.toContain("<img");
-    expect(html).toContain("Confirm the exact size before buying.");
-    expect(html).toContain("min-height: 44px");
+    expect(html).not.toContain("tab=decisions");
+    expect(html).not.toContain("Decisions</a>");
+    expect(html).toContain("Preferences that steer search and ranking");
   });
 
-  it("shows an actionable empty state and uses the existing recovery surface when the bounded reader fails", async () => {
-    const { store, auditPath } = makeHarness();
-    const empty = createLocalUiApp({
-      sessionToken: TOKEN,
-      authorizations: store,
-      audit: { path: auditPath, append() {} },
-      readDecisionStates: () => ({ states: [], invalidRecords: 0 }),
-    });
-    const emptyHtml = await (await empty.request(`/dashboard?t=${TOKEN}&tab=decisions`)).text();
-    expect(emptyHtml).toContain("No saved decisions yet.");
-    expect(emptyHtml).toContain("Run a comparison in your MCP host");
-
-    const failing = createLocalUiApp({
-      sessionToken: TOKEN,
-      authorizations: store,
-      audit: { path: auditPath, append() {} },
-      readDecisionStates() { throw new Error("private path must not leak"); },
-    });
-    const failed = await failing.request(`/dashboard?t=${TOKEN}&tab=decisions`);
-    expect(failed.status).toBe(200);
-    const failedHtml = await failed.text();
-    expect(failedHtml).toContain("Decision data could not be read safely.");
-    expect(failedHtml).not.toContain("private path");
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1088,7 +1001,6 @@ describe("dashboard — watches, audit browser, orders", () => {
     for (const [tab, marker] of [
       ["profile", "STATED"],
       ["watches", "No price watches yet"],
-      ["decisions", "No saved decisions yet"],
       ["audit", "the audit trail is empty"],
       ["orders", "No orders yet"],
     ] as const) {

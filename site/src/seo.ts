@@ -70,7 +70,7 @@ export function homepageSchemas(faqs: readonly FaqItem[] = []): Schema[] {
       url: homepage,
       applicationCategory: 'ShoppingApplication',
       operatingSystem: 'Cross-platform',
-      softwareVersion: '0.2.0',
+      softwareVersion: '0.2.1',
       license: 'https://opensource.org/license/mit',
       downloadUrl: 'https://www.npmjs.com/package/northcinder',
       codeRepository: REPOSITORY_URL,

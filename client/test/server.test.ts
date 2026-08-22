@@ -614,7 +614,7 @@ describe("northcinder MCP server — full tool flow over a real MCP transport", 
     expect(auditLines().some((entry) => entry.continuedFrom === searchId)).toBe(false);
   });
 
-  it("labels unknown browser placement honestly in the human-readable continued-search result", async () => {
+  it("preserves unknown browser placement in structured detail without restoring the full default ledger", async () => {
     const initial = await client.callTool({ name: "search_products", arguments: { text: "repairable sneaker" } });
     const searchId = (initial.structuredContent as { searchId: string }).searchId;
     const continued = await client.callTool({
@@ -635,14 +635,14 @@ describe("northcinder MCP server — full tool flow over a real MCP transport", 
       },
     });
 
+    const structured = continued.structuredContent as {
+      brief: { finalists: Array<{ title: string; sponsored: boolean; acquisition?: { placement: string } }> };
+    };
+    const observed = structured.brief.finalists.find((finalist) => finalist.title === "Unknown Placement Sneaker");
+    expect(observed).toMatchObject({ sponsored: true, acquisition: { placement: "unknown" } });
     const text = (continued.content as Array<{ type: string; text: string }>)[0]!.text;
-    const observedStart = text.indexOf("3. Unknown Placement Sneaker");
-    const observedEnd = text.indexOf("\n\nStore statuses:", observedStart);
-    const observedResult = text.slice(observedStart, observedEnd);
-    expect(observedResult).toContain("PLACEMENT NOT CONFIRMED (de-prioritized)");
-    expect(observedResult).toContain("placement not confirmed: treated like sponsored and ranked below confirmed organic offers");
-    expect(observedResult).not.toContain("SPONSORED (de-prioritized)");
-    expect(observedResult).not.toContain("sponsored listing: labeled");
+    expect(text).not.toContain("3. Unknown Placement Sneaker");
+    expect(text).not.toContain("SPONSORED (de-prioritized)");
   });
 
   it("refuses purchase authorization for an agent-observed offer before creating authorization state", async () => {

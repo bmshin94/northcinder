@@ -1,6 +1,6 @@
 {
   "name": "@northcinder/brief",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "NorthCinder buyer brief with at most three role-based default candidates, expandable finalists, provenance, rejections, unknowns, and store coverage",
   "license": "MIT",
   "type": "module",

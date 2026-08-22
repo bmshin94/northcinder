@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { OrderRecord } from "@northcinder/checkout";
 import type { LifecycleReminder, Order, PurchaseOutcome } from "@northcinder/protocol";
+import type { LocalTrustEvidenceInput } from "../src/local-trust-evidence.js";
 import { LOCAL_TRUST_EVIDENCE_SOURCE, deriveLocalTrustEvidence } from "../src/local-trust-evidence.js";
 
 const MERCHANT = { id: "shop.example", domain: "shop.example" };
@@ -35,6 +36,27 @@ function graphOrder(overrides: Partial<Order> = {}): Order {
 }
 
 describe("deriveLocalTrustEvidence — client-local outcome evidence (display-only, local trust evidence)", () => {
+  it("does not treat lifecycle reminder activity as evidence about a merchant", () => {
+    const reminders: LifecycleReminder[] = [{
+      id: "lifecycle_1",
+      orderId: "order_1",
+      kind: "maintenance",
+      dueOn: "2026-09-01",
+      remindOn: "2026-08-20",
+      detail: "clean",
+      createdAt: "2026-08-20T00:00:00.000Z",
+    }];
+    const lines = deriveLocalTrustEvidence({
+      merchant: MERCHANT,
+      checkoutOrders: [checkoutOrder()],
+      lifecycleReminders: reminders,
+    } as unknown as LocalTrustEvidenceInput);
+
+    expect(lines.map((line) => line.detail)).toEqual([
+      "your history: 1 completed order from this merchant (local orders)",
+    ]);
+  });
+
   it("adds confirmed delivery and support facts for a matching completed checkout without changing the history count", () => {
     const outcome: PurchaseOutcome = { orderId: "order_1", state: "kept", merchantDelivery: "on_time", merchantSupport: "helpful", recordedAt: "2026-08-21T12:00:00.000Z" };
     const lines = deriveLocalTrustEvidence({ merchant: MERCHANT, checkoutOrders: [checkoutOrder()], outcomes: [outcome] });
@@ -50,17 +72,15 @@ describe("deriveLocalTrustEvidence — client-local outcome evidence (display-on
       { orderId: "handoff", state: "kept", merchantSupport: "helpful", recordedAt: "2026-08-21T12:00:00.000Z" },
       { orderId: "other", state: "kept", merchantDelivery: "failed", recordedAt: "2026-08-21T12:00:00.000Z" },
     ];
-    const reminders: LifecycleReminder[] = [{ id: "lifecycle_1", orderId: "order_email_1", kind: "maintenance", dueOn: "2026-09-01", remindOn: "2026-08-20", detail: "clean", createdAt: "2026-08-20T00:00:00.000Z" }];
     const lines = deriveLocalTrustEvidence({
       merchant: MERCHANT,
       checkoutOrders: [checkoutOrder(), checkoutOrder({ orderId: "handoff", status: "handed_off" })],
-      graphOrders: [graphOrder()], outcomes, lifecycleReminders: reminders,
+      graphOrders: [graphOrder()], outcomes,
     });
     const detail = lines.map((line) => line.detail).join("\n");
     expect(detail).toContain("kept 2; returned 1");
     expect(detail).toContain("delivery on_time 1");
     expect(detail).toContain("support helpful 1; unhelpful 1");
-    expect(detail).toContain("1 pending");
     expect(lines[0]!.detail).toContain("your history: 1 completed order from this merchant");
   });
   it("empty history: no checkout orders at all → zero evidence lines (absence is never asserted)", () => {

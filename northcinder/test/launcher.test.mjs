@@ -47,7 +47,7 @@ try {
 
   const version = spawnSync(process.execPath, [bin, "--version"], dispatchOptions);
   assert.equal(version.status, 0, version.stderr);
-  assert.equal(version.stdout.trim(), "northcinder 0.2.0");
+  assert.equal(version.stdout.trim(), "northcinder 0.2.1");
 
   const unauthenticatedService = spawnSync(process.execPath, [bin, "service"], dispatchOptions);
   assert.equal(unauthenticatedService.status, 1, unauthenticatedService.stderr);
@@ -199,10 +199,10 @@ try {
   const validShopRecord = JSON.parse(readFileSync(join(validShopDir, "northcinder-init.json"), "utf8"));
   assert.deepEqual(validShopRecord.shops, ["www.allbirds.com"]);
   assert.equal(validShopRecord.shopifyProfileUrl, "https://agent.example/ucp-profile.json");
-  assert.equal(execFileSync(process.execPath, [bin, "--version"], { encoding: "utf8" }).trim(), "northcinder 0.2.0");
+  assert.equal(execFileSync(process.execPath, [bin, "--version"], { encoding: "utf8" }).trim(), "northcinder 0.2.1");
   assert.equal(
     execFileSync(process.execPath, [bin, "service", "--version"], { encoding: "utf8" }).trim(),
-    "northcinder service 0.2.0",
+    "northcinder service 0.2.1",
   );
 } finally {
   rmSync(configDir, { recursive: true, force: true });

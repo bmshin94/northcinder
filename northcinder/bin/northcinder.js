@@ -18879,7 +18879,7 @@ function createShopifyAdapter(config2 = {}) {
   const manifest = {
     id: STORE_ID,
     name: "Shopify UCP Catalog",
-    version: "0.2.0",
+    version: "0.2.1",
     description: "Shopify Global and Storefront Catalog UCP, using a buyer-controlled HTTPS UCP agent profile for every anonymous catalog call.",
     permissions: {
       // Exactly the hosts this instance may contact — the catalog endpoint
@@ -19155,7 +19155,7 @@ function createEbayAdapter(config2 = {}) {
   const manifest = {
     id: EBAY_STORE_ID,
     name: "eBay Buy Browse API",
-    version: "0.2.0",
+    version: "0.2.1",
     description: "eBay buyer-side Browse API adapter. Sandbox works with any dev keypair; production requires eBay Partner Network approval.",
     // Scoped to the host of the CONFIGURED instance only — a sandbox-mode
     // adapter has no business reaching production (or vice versa).
@@ -19360,7 +19360,7 @@ function createEtsyAdapter(config2 = {}) {
   const manifest = {
     id: ETSY_STORE_ID,
     name: "Etsy Open API v3",
-    version: "0.2.0",
+    version: "0.2.1",
     description: "Etsy Open API v3 adapter. App registration sits 'pending approval' until Etsy manually reviews it; fixture-driven until an approved key exists.",
     permissions: { allowedHosts: [API_HOST], userSession: false },
     capabilities: { checkout: false }
@@ -19667,7 +19667,7 @@ function createAmazonAdapter(config2 = {}) {
   const manifest = {
     id: AMAZON_STORE_ID,
     name: "Amazon (user-session edge, spec \xA73A)",
-    version: "0.2.0",
+    version: "0.2.1",
     description: "Session-only Amazon adapter: Playwright in the user's own logged-in browser profile. Honest agent User-Agent, no CAPTCHA interaction, no human-input mimicry. Search + read-offer only; checkout stays in the user's hands.",
     permissions: { allowedHosts: [AMAZON_HOST], userSession: true },
     capabilities: { checkout: false }
@@ -19893,7 +19893,7 @@ function createWoocommerceAdapter(config2 = {}) {
   const manifest = {
     id: WOOCOMMERCE_STORE_ID,
     name: "WooCommerce Store API",
-    version: "0.2.0",
+    version: "0.2.1",
     description: "WooCommerce core's public, unauthenticated Store API (wp-json/wc/store/v1) \u2014 live by default, no credentials, per-store fan-out.",
     permissions: { allowedHosts: [...stores], userSession: false },
     capabilities: { checkout: false }
@@ -20048,7 +20048,7 @@ function createDemoSponsoredAdapter(config2 = {}) {
   const manifest = {
     id: DEMO_SPONSORED_STORE_ID,
     name: "Demo sponsored-placement adapter (synthetic)",
-    version: "0.2.0",
+    version: "0.2.1",
     description: "demo-only synthetic adapter: injects one clearly-labeled sponsored offer to demonstrate the ranking's sponsored de-prioritization; no network, gated behind NORTHCINDER_DEMO_SPONSORED_ADAPTER=1",
     permissions: { allowedHosts: [], userSession: false },
     capabilities: { checkout: false }
@@ -22591,6 +22591,7 @@ function createOrchestrator(adapters, config2 = {}) {
   }
   function validateOffers(store, offers) {
     const valid = [];
+    let unsafeCount = 0;
     for (const raw2 of offers) {
       const parsed = OfferSchema.safeParse(raw2);
       if (!parsed.success) {
@@ -22610,14 +22611,18 @@ function createOrchestrator(adapters, config2 = {}) {
         };
       }
       if (containsUnsafeAgentFacingText(parsed.data)) {
-        return {
-          error: storeError(store, "invalid_response", "store returned unsafe agent-facing content", {
-            retryable: false,
-            details: { category: "instruction_like_text" }
-          })
-        };
+        unsafeCount += 1;
+        continue;
       }
       valid.push(parsed.data.fetchedAt !== void 0 ? parsed.data : { ...parsed.data, fetchedAt: cfg.now() });
+    }
+    if (offers.length > 0 && unsafeCount === offers.length) {
+      return {
+        error: storeError(store, "invalid_response", "store returned unsafe agent-facing content", {
+          retryable: false,
+          details: { category: "instruction_like_text" }
+        })
+      };
     }
     return { offers: valid };
   }
@@ -22874,7 +22879,7 @@ function createApp(deps) {
     (c) => c.json({
       ok: true,
       service: "northcinder",
-      version: "0.2.0",
+      version: "0.2.1",
       ...deps.auth.kind === "local-loopback" && deps.discoverySources !== void 0 ? { discoverySources: deps.discoverySources } : {}
     })
   );
@@ -40868,7 +40873,7 @@ function emittedMcpEnvironment(result) {
 }
 async function probeEmittedMcpServer(result) {
   const entry = emittedMcpEntry(result);
-  const client = new Client({ name: "northcinder-init-readiness", version: "0.2.0" });
+  const client = new Client({ name: "northcinder-init-readiness", version: "0.2.1" });
   const transport = new StdioClientTransport({
     command: entry.command,
     args: entry.args,
@@ -44070,311 +44075,6 @@ var init_body_limit = __esm({
   }
 });
 
-// ../client/src/decision-state.ts
-function boundedText(value, maximum, warning, warnings) {
-  if (value.length <= maximum) return value;
-  warnings.add(warning);
-  return `${value.slice(0, maximum - 1)}\u2026`;
-}
-function boundedValues(values, maximumItems, maximumText, textWarning, entriesWarning, warnings) {
-  if (values.length > maximumItems) warnings.add(entriesWarning);
-  return values.slice(0, maximumItems).map((value) => boundedText(value, maximumText, textWarning, warnings));
-}
-function boundedUrl(value, warning, warnings) {
-  if (value === void 0) return void 0;
-  if (value.length <= DISPLAY_TEXT_MAX) return value;
-  warnings.add(warning);
-  return void 0;
-}
-function projectDecisionState(input) {
-  const warnings = /* @__PURE__ */ new Set();
-  const { buyerContext: _buyerContext, ...criteria } = input.brief.query;
-  const boundedCriteria = {
-    ...criteria,
-    text: boundedText(criteria.text, DISPLAY_TEXT_MAX, ProjectionWarning.requestText, warnings),
-    ...criteria.mustHaveAttributes !== void 0 ? {
-      mustHaveAttributes: boundedValues(
-        criteria.mustHaveAttributes,
-        32,
-        500,
-        ProjectionWarning.criteriaValue,
-        ProjectionWarning.criteriaEntries,
-        warnings
-      )
-    } : {},
-    ...criteria.ethicsFlags !== void 0 ? {
-      ethicsFlags: boundedValues(
-        criteria.ethicsFlags,
-        16,
-        500,
-        ProjectionWarning.criteriaValue,
-        ProjectionWarning.criteriaEntries,
-        warnings
-      )
-    } : {}
-  };
-  const finalistsByOffer = new Map(
-    input.brief.finalists.map((finalist) => [decisionOfferKey(finalist.sourceStore, finalist.offerId), finalist])
-  );
-  const candidates = input.brief.decisionSummary.flatMap((summary) => {
-    const finalist = finalistsByOffer.get(decisionOfferKey(summary.sourceStore, summary.offerId));
-    if (finalist === void 0) return [];
-    const url2 = boundedUrl(finalist.url, ProjectionWarning.candidateUrl, warnings);
-    const imageUrl = boundedUrl(finalist.imageUrl, ProjectionWarning.candidateImageUrl, warnings);
-    if (finalist.tradeoffs.length > 20) warnings.add(ProjectionWarning.candidateEntries);
-    return [{
-      role: summary.role,
-      roleReason: boundedText(summary.roleReason, DISPLAY_TEXT_MAX, ProjectionWarning.candidateText, warnings),
-      rank: finalist.rank,
-      sourceStore: finalist.sourceStore,
-      offerId: finalist.offerId,
-      title: boundedText(finalist.title, DISPLAY_TEXT_MAX, ProjectionWarning.candidateTitle, warnings),
-      ...url2 !== void 0 ? { url: url2 } : {},
-      ...imageUrl !== void 0 ? { imageUrl } : {},
-      ...finalist.productIdentity !== void 0 ? { productIdentity: finalist.productIdentity } : {},
-      merchant: {
-        id: boundedText(finalist.merchant.id, OFFER_REFERENCE_MAX, ProjectionWarning.merchantId, warnings),
-        name: boundedText(finalist.merchant.name, MERCHANT_NAME_MAX, ProjectionWarning.merchantName, warnings)
-      },
-      price: finalist.price,
-      availability: finalist.availability,
-      ...finalist.deliveryBy !== void 0 ? { deliveryBy: finalist.deliveryBy } : {},
-      ...finalist.trustLevel !== void 0 ? { trustLevel: finalist.trustLevel } : {},
-      sponsored: finalist.sponsored,
-      ...finalist.landedCost !== void 0 ? {
-        landedCost: {
-          knownTotal: finalist.landedCost.knownTotal,
-          unknownComponents: finalist.landedCost.unknownComponents,
-          completeness: finalist.landedCost.completeness
-        }
-      } : {},
-      sellerState: finalist.sellerState,
-      freshness: finalist.freshness,
-      verificationState: finalist.verificationState,
-      decisionStatus: finalist.decisionStatus,
-      importantUnknowns: boundedValues(
-        finalist.importantUnknowns,
-        12,
-        DISPLAY_TEXT_MAX,
-        ProjectionWarning.candidateText,
-        ProjectionWarning.candidateEntries,
-        warnings
-      ),
-      decisiveDownside: boundedText(
-        finalist.decisiveDownside,
-        DISPLAY_TEXT_MAX,
-        ProjectionWarning.candidateText,
-        warnings
-      ),
-      whyThis: boundedValues(
-        finalist.whyThis,
-        50,
-        DISPLAY_TEXT_MAX,
-        ProjectionWarning.candidateText,
-        ProjectionWarning.candidateEntries,
-        warnings
-      ),
-      tradeoffs: finalist.tradeoffs.slice(0, 20).map((tradeoff) => ({
-        dimension: tradeoff.dimension,
-        detail: boundedText(tradeoff.detail, DISPLAY_TEXT_MAX, ProjectionWarning.tradeoffDetail, warnings)
-      }))
-    }];
-  });
-  if (input.brief.coverage.length > 100) warnings.add(ProjectionWarning.coverageEntries);
-  const coverage = input.brief.coverage.slice(0, 100).map((entry) => ({
-    store: boundedText(entry.store, OFFER_REFERENCE_MAX, ProjectionWarning.coverageStore, warnings),
-    status: entry.status,
-    offerCount: entry.offerCount,
-    ...entry.detail !== void 0 ? { detail: boundedText(entry.detail, DISPLAY_TEXT_MAX, ProjectionWarning.coverageDetail, warnings) } : {}
-  }));
-  const profileEffects = {
-    applied: (input.interpreted?.appliedProfileEntries ?? []).slice(0, 64).map((entry) => ({
-      id: boundedText(entry.id, 200, ProjectionWarning.profileEffect, warnings),
-      origin: entry.origin,
-      kind: boundedText(entry.kind, 100, ProjectionWarning.profileEffect, warnings),
-      appliedTo: boundedText(entry.appliedTo, 200, ProjectionWarning.profileEffect, warnings),
-      detail: boundedText(entry.detail, DISPLAY_TEXT_MAX, ProjectionWarning.profileEffect, warnings)
-    })),
-    overridden: (input.interpreted?.overriddenProfileEntries ?? []).slice(0, 64).map((entry) => ({
-      id: boundedText(entry.id, 200, ProjectionWarning.profileEffect, warnings),
-      origin: entry.origin,
-      kind: boundedText(entry.kind, 100, ProjectionWarning.profileEffect, warnings),
-      appliedTo: boundedText(entry.appliedTo, 200, ProjectionWarning.profileEffect, warnings),
-      detail: boundedText(entry.detail, DISPLAY_TEXT_MAX, ProjectionWarning.profileEffect, warnings),
-      overriddenBy: boundedText(entry.overriddenBy, DISPLAY_TEXT_MAX, ProjectionWarning.profileEffect, warnings)
-    }))
-  };
-  return PersistedDecisionStateSchema.parse({
-    searchId: input.brief.searchId,
-    request: boundedText(input.brief.query.text, DISPLAY_TEXT_MAX, ProjectionWarning.requestText, warnings),
-    criteria: boundedCriteria,
-    candidates,
-    coverage,
-    unresolvedResearchQuestions: input.brief.unresolvedResearchQuestions,
-    readiness: {
-      status: input.decisionReadiness.status,
-      reasons: input.decisionReadiness.reasons
-    },
-    projectionWarnings: [...warnings],
-    chosenOffer: input.chosenOffer ?? null,
-    outcome: input.outcome ?? null,
-    profileEffects
-  });
-}
-function withDecisionOutcome(state, outcome) {
-  return PersistedDecisionStateSchema.parse({ ...state, outcome: outcome.state });
-}
-function readDecisionStates(auditPath, options = {}) {
-  const requestedLimit = options.limit ?? 20;
-  const limit = Math.min(50, Math.max(1, Number.isFinite(requestedLimit) ? Math.floor(requestedLimit) : 20));
-  const states = [];
-  const handledSearchIds = /* @__PURE__ */ new Set();
-  let invalidRecords = 0;
-  forEachLineFromEnd(auditPath, (line) => {
-    if (states.length >= limit) return false;
-    if (line.trim().length === 0) return;
-    let event;
-    try {
-      event = JSON.parse(line);
-    } catch {
-      return;
-    }
-    if (typeof event !== "object" || event === null || Array.isArray(event)) return;
-    const record2 = event;
-    if (!("decisionState" in record2)) return;
-    const statedSearchId = typeof record2.searchId === "string" ? record2.searchId : typeof record2.decisionState === "object" && record2.decisionState !== null && !Array.isArray(record2.decisionState) && typeof record2.decisionState.searchId === "string" ? record2.decisionState.searchId : void 0;
-    if (statedSearchId === void 0 || handledSearchIds.has(statedSearchId)) return;
-    handledSearchIds.add(statedSearchId);
-    const parsed = PersistedDecisionStateSchema.safeParse(record2.decisionState);
-    if (!parsed.success || parsed.data.searchId !== statedSearchId) {
-      invalidRecords += 1;
-      return;
-    }
-    states.push(parsed.data);
-  }, options.chunkSize);
-  return { states, invalidRecords };
-}
-var DISPLAY_TEXT_MAX, OFFER_REFERENCE_MAX, MERCHANT_NAME_MAX, DecisionTextSchema, DecisionIdentifierSchema, DecisionOfferReferenceSchema, DecisionMerchantIdentifierSchema, DecisionUrlSchema, DecisionProjectionWarningSchema, ProjectionWarning, BoundedCriteriaSchema, BoundedCoverageSchema, BoundedTradeoffSchema, BoundedProfileEffectSchema, BoundedProfileEffectsSchema, PersistedLandedCostSchema, PersistedDecisionCandidateSchema, PersistedDecisionStateSchema;
-var init_decision_state = __esm({
-  "../client/src/decision-state.ts"() {
-    "use strict";
-    init_zod();
-    init_dist();
-    init_bounded_tail_reader();
-    DISPLAY_TEXT_MAX = 2e3;
-    OFFER_REFERENCE_MAX = 500;
-    MERCHANT_NAME_MAX = 200;
-    DecisionTextSchema = external_exports.string().min(1).max(DISPLAY_TEXT_MAX);
-    DecisionIdentifierSchema = external_exports.string().min(1).max(200);
-    DecisionOfferReferenceSchema = external_exports.string().min(1).max(OFFER_REFERENCE_MAX);
-    DecisionMerchantIdentifierSchema = external_exports.string().min(1).max(OFFER_REFERENCE_MAX);
-    DecisionUrlSchema = external_exports.string().url().max(DISPLAY_TEXT_MAX);
-    DecisionProjectionWarningSchema = external_exports.string().min(1).max(200);
-    ProjectionWarning = {
-      requestText: "Request text was shortened for the local Decisions display.",
-      criteriaValue: "Criteria values were shortened for the local Decisions display.",
-      criteriaEntries: "Some criteria values were omitted from the local Decisions display.",
-      coverageStore: "Coverage store names were shortened for the local Decisions display.",
-      coverageDetail: "Coverage details were shortened for the local Decisions display.",
-      coverageEntries: "Some coverage entries were omitted from the local Decisions display.",
-      candidateTitle: "Candidate titles were shortened for the local Decisions display.",
-      candidateUrl: "Candidate product links were omitted because they exceeded the local Decisions display bound.",
-      candidateImageUrl: "Candidate image links were omitted because they exceeded the local Decisions display bound.",
-      merchantId: "Merchant identifiers were shortened for the local Decisions display.",
-      merchantName: "Merchant names were shortened for the local Decisions display.",
-      candidateText: "Candidate decision details were shortened for the local Decisions display.",
-      candidateEntries: "Some candidate decision details were omitted from the local Decisions display.",
-      tradeoffDetail: "Candidate tradeoff details were shortened for the local Decisions display.",
-      profileEffect: "Profile effect details were shortened for the local Decisions display."
-    };
-    BoundedCriteriaSchema = external_exports.object({
-      text: DecisionTextSchema,
-      maxPrice: MoneySchema.optional(),
-      mustHaveAttributes: external_exports.array(external_exports.string().min(1).max(500)).max(32).optional(),
-      deliveryBy: external_exports.iso.date().optional(),
-      ethicsFlags: external_exports.array(external_exports.string().min(1).max(500)).max(16).optional(),
-      maxResults: external_exports.int().positive().max(100).optional(),
-      criteria: external_exports.array(DecisionCriterionSchema).max(16).optional()
-    }).strict();
-    BoundedCoverageSchema = external_exports.array(
-      external_exports.object({
-        store: DecisionOfferReferenceSchema,
-        status: external_exports.enum(["searched", "blocked", "not_configured", "error"]),
-        offerCount: external_exports.int().nonnegative().max(Number.MAX_SAFE_INTEGER),
-        detail: DecisionTextSchema.optional()
-      }).strict()
-    ).max(100);
-    BoundedTradeoffSchema = external_exports.object({
-      dimension: external_exports.enum(["price", "delivery", "trust", "spec"]),
-      detail: DecisionTextSchema
-    }).strict();
-    BoundedProfileEffectSchema = external_exports.object({
-      id: external_exports.string().min(1).max(200),
-      origin: external_exports.enum(["stated", "inferred"]),
-      kind: external_exports.string().min(1).max(100),
-      appliedTo: external_exports.string().min(1).max(200),
-      detail: DecisionTextSchema
-    }).strict();
-    BoundedProfileEffectsSchema = external_exports.object({
-      applied: external_exports.array(BoundedProfileEffectSchema).max(64),
-      overridden: external_exports.array(BoundedProfileEffectSchema.extend({ overriddenBy: DecisionTextSchema })).max(64)
-    }).strict();
-    PersistedLandedCostSchema = external_exports.object({
-      knownTotal: MoneySchema,
-      unknownComponents: external_exports.array(LandedCostComponentKindSchema).max(5),
-      completeness: external_exports.enum(["complete", "partial"])
-    }).strict();
-    PersistedDecisionCandidateSchema = external_exports.object({
-      role: external_exports.enum(["top_fit", "lower_risk", "budget_or_different"]),
-      roleReason: external_exports.string().trim().min(1).max(2e3),
-      rank: external_exports.int().positive(),
-      sourceStore: DecisionOfferReferenceSchema,
-      offerId: DecisionOfferReferenceSchema,
-      title: DecisionTextSchema,
-      url: DecisionUrlSchema.optional(),
-      imageUrl: DecisionUrlSchema.optional(),
-      productIdentity: ExactProductIdentitySchema.optional(),
-      merchant: external_exports.object({
-        id: DecisionMerchantIdentifierSchema,
-        name: external_exports.string().min(1).max(MERCHANT_NAME_MAX)
-      }).strict(),
-      price: MoneySchema,
-      availability: AvailabilitySchema,
-      deliveryBy: external_exports.iso.date().optional(),
-      trustLevel: TrustLevelSchema.optional(),
-      sponsored: external_exports.boolean(),
-      landedCost: external_exports.union([PersistedLandedCostSchema, LandedCostSchema]).optional(),
-      sellerState: TrustLevelSchema,
-      freshness: FreshnessSchema,
-      verificationState: external_exports.enum(["agent_observed", "merchant_verified"]),
-      decisionStatus: external_exports.enum(["eliminated", "provisional", "ready"]),
-      importantUnknowns: external_exports.array(DecisionTextSchema).max(12),
-      decisiveDownside: DecisionTextSchema,
-      whyThis: external_exports.array(DecisionTextSchema).min(1).max(50),
-      tradeoffs: external_exports.array(BoundedTradeoffSchema).max(20)
-    }).strict();
-    PersistedDecisionStateSchema = external_exports.object({
-      searchId: DecisionIdentifierSchema,
-      request: DecisionTextSchema,
-      criteria: BoundedCriteriaSchema,
-      candidates: external_exports.array(PersistedDecisionCandidateSchema).max(3),
-      coverage: BoundedCoverageSchema,
-      unresolvedResearchQuestions: BuyersBriefSchema.shape.unresolvedResearchQuestions,
-      readiness: external_exports.object({
-        status: external_exports.enum(["insufficient", "provisional", "ready"]),
-        reasons: external_exports.array(external_exports.string().trim().min(1).max(100)).max(50)
-      }).strict(),
-      projectionWarnings: external_exports.array(DecisionProjectionWarningSchema).max(20).default([]),
-      chosenOffer: external_exports.object({
-        sourceStore: DecisionOfferReferenceSchema,
-        offerId: DecisionOfferReferenceSchema
-      }).strict().nullable(),
-      outcome: external_exports.enum(["kept", "returned", "cancelled", "failed"]).nullable(),
-      profileEffects: BoundedProfileEffectsSchema.default({ applied: [], overridden: [] })
-    }).strict();
-  }
-});
-
 // ../client/src/local-ui.ts
 import { createHash as createHash7, randomBytes as randomBytes3, timingSafeEqual as timingSafeEqual3 } from "node:crypto";
 function generateSessionToken() {
@@ -44831,88 +44531,9 @@ function createLocalUiApp(deps) {
     ].join("\n");
     return [checkoutTable, emailTable].filter((s) => s.length > 0).join("\n");
   }
-  function safeHttpUrl2(value) {
-    if (value === void 0) return false;
-    try {
-      const url2 = new URL(value);
-      return (url2.protocol === "http:" || url2.protocol === "https:") && url2.username === "" && url2.password === "";
-    } catch {
-      return false;
-    }
-  }
-  function decisionRole(role) {
-    return role === "top_fit" ? "TOP FIT" : role === "lower_risk" ? "LOWER RISK" : "BUDGET OR DIFFERENT";
-  }
-  function decisionCandidate(candidate) {
-    const title = safeHttpUrl2(candidate.url) ? `<a href="${esc2(candidate.url)}" target="_blank" rel="noopener noreferrer">${esc2(candidate.title)}</a>` : esc2(candidate.title);
-    const image = safeHttpUrl2(candidate.imageUrl) ? `<a href="${esc2(candidate.imageUrl)}" target="_blank" rel="noopener noreferrer">product image</a>` : "not provided";
-    const variant = candidate.productIdentity?.variant ?? "unknown";
-    const landed = candidate.landedCost ? `${formatMoney2(candidate.landedCost.knownTotal)} ${candidate.landedCost.completeness}` : "unknown";
-    const freshness = candidate.freshness.status === "known" ? `observed ${candidate.freshness.observedAt}` : "unknown";
-    const unknowns = candidate.importantUnknowns.length ? candidate.importantUnknowns.map(esc2).join("; ") : "none recorded";
-    return [
-      `<details class="decision-row">`,
-      `<summary><span><span class="decision-role">${esc2(decisionRole(candidate.role))}</span><br><span class="decision-title">${esc2(candidate.title)}</span></span><span class="decision-rank mono">rank ${esc2(candidate.rank)} \xB7 Details and evidence</span></summary>`,
-      `<div class="decision-detail">`,
-      `<p class="decision-meta">${esc2(candidate.roleReason)}</p>`,
-      `<dl>`,
-      `<dt>Candidate</dt><dd>${title}</dd>`,
-      `<dt>Variant</dt><dd>${esc2(variant)}</dd>`,
-      `<dt>Image</dt><dd>${image}</dd>`,
-      `<dt>Price</dt><dd>${esc2(formatMoney2(candidate.price))}</dd>`,
-      `<dt>Landed cost</dt><dd>${esc2(landed)}</dd>`,
-      `<dt>Seller</dt><dd>${esc2(candidate.merchant.name)} \xB7 ${esc2(candidate.sellerState)}</dd>`,
-      `<dt>Freshness</dt><dd>${esc2(freshness)}</dd>`,
-      `<dt>Verification</dt><dd>${esc2(candidate.verificationState)}</dd>`,
-      `<dt>Readiness</dt><dd>${esc2(candidate.decisionStatus)}</dd>`,
-      `<dt>Decisive downside</dt><dd>${esc2(candidate.decisiveDownside)}</dd>`,
-      `<dt>Important unknowns</dt><dd>${unknowns}</dd>`,
-      `</dl>`,
-      `<p class="decision-meta"><strong>Why this:</strong> ${esc2(candidate.whyThis.join("; "))}</p>`,
-      candidate.tradeoffs.length ? `<p class="decision-meta"><strong>Tradeoffs:</strong> ${esc2(candidate.tradeoffs.map((tradeoff) => `${tradeoff.dimension}: ${tradeoff.detail}`).join("; "))}</p>` : "",
-      candidate.sponsored ? `<p class="decision-warning">Sponsored placement is disclosed and remains below organic results.</p>` : "",
-      `</div>`,
-      `</details>`
-    ].join("\n");
-  }
-  function decisionsTab() {
-    const view = (deps.readDecisionStates ?? readDecisionStates)(deps.audit.path);
-    if (view.states.length === 0) {
-      return `<p class="muted">No saved decisions yet. Run a comparison in your MCP host to create a bounded, redacted display state here.</p>`;
-    }
-    const states = view.states.map((state) => {
-      const criteria = state.criteria.maxPrice ? `${state.criteria.text} \xB7 maximum ${formatMoney2(state.criteria.maxPrice)}` : state.criteria.text;
-      const coverage = state.coverage.map((entry) => `${entry.store}: ${entry.status} (${entry.offerCount})${entry.detail ? ` \u2014 ${entry.detail}` : ""}`).join("; ");
-      const questions = state.unresolvedResearchQuestions.length ? `<p class="decision-meta"><strong>Research questions:</strong> ${esc2(state.unresolvedResearchQuestions.join("; "))}</p>` : "";
-      const projectionWarnings = state.projectionWarnings.length ? `<p class="decision-warning"><strong>Bounded display note:</strong> ${esc2(state.projectionWarnings.join(" "))}</p>` : "";
-      const chosen = state.chosenOffer ? `${state.chosenOffer.sourceStore}:${state.chosenOffer.offerId}` : "No candidate has been chosen.";
-      const outcome = state.outcome ? state.outcome : "No lifecycle outcome is recorded.";
-      const profileEffects = state.profileEffects.applied.length + state.profileEffects.overridden.length === 0 ? "No profile effects were recorded." : [
-        ...state.profileEffects.applied.map((effect) => `applied ${effect.kind} (${effect.id}) to ${effect.appliedTo}: ${effect.detail}`),
-        ...state.profileEffects.overridden.map((effect) => `overrode ${effect.kind} (${effect.id}) with ${effect.overriddenBy}`)
-      ].join("; ");
-      return [
-        `<section class="decision-state">`,
-        `<h2>${esc2(state.request)}</h2>`,
-        `<p class="decision-meta mono">${esc2(state.searchId)} \xB7 ${esc2(state.readiness.status)} \xB7 newest saved state</p>`,
-        `<p class="decision-meta"><strong>Criteria:</strong> ${esc2(criteria)}</p>`,
-        `<p class="decision-meta"><strong>Coverage:</strong> ${esc2(coverage)}</p>`,
-        `<p class="decision-meta"><strong>Chosen:</strong> ${esc2(chosen)}</p>`,
-        `<p class="decision-meta"><strong>Outcome:</strong> ${esc2(outcome)}</p>`,
-        `<p class="decision-meta"><strong>Profile effects:</strong> ${esc2(profileEffects)}</p>`,
-        projectionWarnings,
-        questions,
-        state.candidates.slice(0, 3).map(decisionCandidate).join("\n"),
-        `</section>`
-      ].join("\n");
-    }).join("\n");
-    const warning = view.invalidRecords > 0 ? `<p class="decision-warning">${esc2(view.invalidRecords)} invalid decision record${view.invalidRecords === 1 ? " was" : "s were"} skipped.</p>` : "";
-    return `${warning}${states}`;
-  }
   const TAB_SUBTITLE = {
     profile: "Preferences that steer search and ranking \u2014 what you stated yourself, and what was inferred from your feedback.",
     watches: "Notify when a target price is hit \u2014 they never buy anything.",
-    decisions: "Read-only, bounded display states from your local audit trail, including confirmed outcomes only when a matching checkout record exists.",
     orders: "Every completed or handed-off checkout, plus orders recovered from order-confirmation/shipping/return-window emails.",
     audit: "Read-only, append-only trail \u2014 every search, ranking (with reasons), authorization, approval, and checkout attempt this client ever made. Newest first."
   };
@@ -44921,9 +44542,9 @@ function createLocalUiApp(deps) {
     const tab = DASHBOARD_TABS.includes(requested ?? "") ? requested : "profile";
     let content;
     try {
-      content = tab === "profile" ? profileTab(c) : tab === "watches" ? watchesTab(c) : tab === "decisions" ? decisionsTab() : tab === "audit" ? auditTab(c) : !deps.orders && !deps.orderGraph ? dashboardUnconfigured(c, "orders", "order") : ordersTab();
+      content = tab === "profile" ? profileTab(c) : tab === "watches" ? watchesTab(c) : tab === "audit" ? auditTab(c) : !deps.orders && !deps.orderGraph ? dashboardUnconfigured(c, "orders", "order") : ordersTab();
     } catch {
-      const label = { profile: "Profile", watches: "Watch", decisions: "Decision", audit: "Audit", orders: "Order" };
+      const label = { profile: "Profile", watches: "Watch", audit: "Audit", orders: "Order" };
       content = dashboardRecovery(c, tab, `${label[tab]} data could not be read safely.`);
     }
     const body = `<p class="surface-sub">${esc2(TAB_SUBTITLE[tab])}</p>
@@ -45061,10 +44682,9 @@ var init_local_ui = __esm({
     init_dist2();
     init_dist();
     init_audit_log();
-    init_decision_state();
     init_brand();
     init_order_tuple();
-    DASHBOARD_TABS = ["profile", "watches", "decisions", "audit", "orders"];
+    DASHBOARD_TABS = ["profile", "watches", "audit", "orders"];
     STYLE = `
   :root {
     color-scheme: light dark;
@@ -45175,23 +44795,6 @@ var init_local_ui = __esm({
   details.json summary { cursor: pointer; color: var(--ink-2); font-size: 11.5px; }
   details.json pre { background: var(--surface); border: 1px solid var(--line); padding: 8px 10px; border-radius: 6px; font-size: 11.5px; overflow-x: auto; font-family: ui-monospace, monospace; }
   .table-wrap { width: 100%; overflow-x: auto; }
-  .decision-state { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 12px; }
-  .decision-state + .decision-state { margin-top: 22px; }
-  .decision-state h2 { font-size: 15px; margin: 0 0 4px; }
-  .decision-meta { margin: 0 0 10px; color: var(--ink-2); font-size: 12px; }
-  details.decision-row { border-top: 1px solid var(--line); }
-  details.decision-row > summary { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; min-height: 44px; cursor: pointer; list-style: none; }
-  details.decision-row > summary::-webkit-details-marker { display: none; }
-  .decision-role { font-family: ui-monospace, monospace; font-size: 10px; font-weight: 600; letter-spacing: .05em; color: var(--verified); text-transform: uppercase; }
-  .decision-title { font-weight: 600; overflow-wrap: anywhere; }
-  .decision-rank { color: var(--ink-2); font-size: 11px; }
-  .decision-detail { padding: 0 0 12px; }
-  .decision-detail dl { display: grid; grid-template-columns: minmax(110px, .35fr) minmax(0, 1fr); gap: 7px 12px; margin: 0; font-size: 12px; }
-  .decision-detail dt { color: var(--ink-2); font-family: ui-monospace, monospace; font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
-  .decision-detail dd { margin: 0; overflow-wrap: anywhere; }
-  .decision-detail ul { margin: 8px 0 0; padding-left: 18px; }
-  .decision-warning { color: var(--flag); font-size: 12px; }
-
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
       scroll-behavior: auto !important;
@@ -45224,7 +44827,6 @@ var init_local_ui = __esm({
     table.ledger td[colspan] { display: block; }
     table.ledger td[colspan]::before { content: none; }
     table.ledger td form { margin: 0; }
-    .decision-detail dl { grid-template-columns: minmax(88px, .35fr) minmax(0, 1fr); }
   }
 
   /* ---------- approval receipt card (centered focused surface) ---------- */
@@ -45260,7 +44862,6 @@ var init_local_ui = __esm({
     RAIL_ICONS = {
       profile: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="2"/><path d="M4 20c0-4.4 3.6-7 8-7s8 2.6 8 7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
       watches: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="2"/><path d="M12 8v4l3 2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-      decisions: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><path d="M5 5h14M5 12h14M5 19h9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="m16 17 2 2 3-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
       orders: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><rect x="4" y="3" width="16" height="18" rx="1.5" stroke="currentColor" stroke-width="2"/><path d="M8 8h8M8 12h8M8 16h5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
       audit: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><path d="M4 4h16v13l-4 3H4V4z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M8 9h8M8 13h5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`
     };
@@ -47908,7 +47509,7 @@ function isoDateFromMs(ms) {
 }
 function deriveLocalTrustEvidence(input) {
   try {
-    const { merchant, checkoutOrders, graphOrders = [], outcomes = [], lifecycleReminders = [] } = input;
+    const { merchant, checkoutOrders, graphOrders = [], outcomes = [] } = input;
     if (!isNonEmptyString(merchant?.id) || !isNonEmptyString(merchant?.domain)) return [];
     let completedCount = 0;
     const matchingCompletedOrderIds = /* @__PURE__ */ new Set();
@@ -47961,11 +47562,6 @@ function deriveLocalTrustEvidence(input) {
       const delivery = count((outcome) => outcome.merchantDelivery);
       const support = count((outcome) => outcome.merchantSupport);
       evidence.push({ source: LOCAL_TRUST_EVIDENCE_SOURCE, detail: `your confirmed local outcomes: ${states}${delivery ? `; delivery ${delivery}` : ""}${support ? `; support ${support}` : ""} (local orders)`, fetchedAt: now().toISOString() });
-    }
-    const matchedLifecycle = lifecycleReminders.filter((reminder) => outcomeEligibleOrderIds.has(reminder.orderId)).slice(0, 20);
-    if (matchedLifecycle.length > 0) {
-      const sent = matchedLifecycle.filter((reminder) => reminder.reminderSentAt !== void 0).length;
-      evidence.push({ source: LOCAL_TRUST_EVIDENCE_SOURCE, detail: `your lifecycle reminders: ${matchedLifecycle.length - sent} pending; ${sent} sent (local orders)`, fetchedAt: now().toISOString() });
     }
     if (evidence.length === 0) return [];
     return evidence;
@@ -48136,6 +47732,314 @@ var init_decision_evidence = __esm({
     "use strict";
     init_dist();
     LEGACY_ELIMINATION_CODES = new Set(Object.values(RANK_ELIMINATION_CODES));
+  }
+});
+
+// ../client/src/decision-state.ts
+function boundedText(value, maximum, warning, warnings) {
+  if (value.length <= maximum) return value;
+  warnings.add(warning);
+  return `${value.slice(0, maximum - 1)}\u2026`;
+}
+function boundedValues(values, maximumItems, maximumText, textWarning, entriesWarning, warnings) {
+  if (values.length > maximumItems) warnings.add(entriesWarning);
+  return values.slice(0, maximumItems).map((value) => boundedText(value, maximumText, textWarning, warnings));
+}
+function boundedUrl(value, warning, warnings) {
+  if (value === void 0) return void 0;
+  if (value.length <= DISPLAY_TEXT_MAX) return value;
+  warnings.add(warning);
+  return void 0;
+}
+function projectDecisionState(input) {
+  const warnings = /* @__PURE__ */ new Set();
+  const { buyerContext: _buyerContext, ...criteria } = input.brief.query;
+  const boundedCriteria = {
+    ...criteria,
+    text: boundedText(criteria.text, DISPLAY_TEXT_MAX, ProjectionWarning.requestText, warnings),
+    ...criteria.mustHaveAttributes !== void 0 ? {
+      mustHaveAttributes: boundedValues(
+        criteria.mustHaveAttributes,
+        32,
+        500,
+        ProjectionWarning.criteriaValue,
+        ProjectionWarning.criteriaEntries,
+        warnings
+      )
+    } : {},
+    ...criteria.ethicsFlags !== void 0 ? {
+      ethicsFlags: boundedValues(
+        criteria.ethicsFlags,
+        16,
+        500,
+        ProjectionWarning.criteriaValue,
+        ProjectionWarning.criteriaEntries,
+        warnings
+      )
+    } : {}
+  };
+  const finalistsByOffer = new Map(
+    input.brief.finalists.map((finalist) => [decisionOfferKey(finalist.sourceStore, finalist.offerId), finalist])
+  );
+  const candidates = input.brief.decisionSummary.flatMap((summary) => {
+    const finalist = finalistsByOffer.get(decisionOfferKey(summary.sourceStore, summary.offerId));
+    if (finalist === void 0) return [];
+    const url2 = boundedUrl(finalist.url, ProjectionWarning.candidateUrl, warnings);
+    const imageUrl = boundedUrl(finalist.imageUrl, ProjectionWarning.candidateImageUrl, warnings);
+    if (finalist.tradeoffs.length > 20) warnings.add(ProjectionWarning.candidateEntries);
+    return [{
+      role: summary.role,
+      roleReason: boundedText(summary.roleReason, DISPLAY_TEXT_MAX, ProjectionWarning.candidateText, warnings),
+      rank: finalist.rank,
+      sourceStore: finalist.sourceStore,
+      offerId: finalist.offerId,
+      title: boundedText(finalist.title, DISPLAY_TEXT_MAX, ProjectionWarning.candidateTitle, warnings),
+      ...url2 !== void 0 ? { url: url2 } : {},
+      ...imageUrl !== void 0 ? { imageUrl } : {},
+      ...finalist.productIdentity !== void 0 ? { productIdentity: finalist.productIdentity } : {},
+      merchant: {
+        id: boundedText(finalist.merchant.id, OFFER_REFERENCE_MAX, ProjectionWarning.merchantId, warnings),
+        name: boundedText(finalist.merchant.name, MERCHANT_NAME_MAX, ProjectionWarning.merchantName, warnings)
+      },
+      price: finalist.price,
+      availability: finalist.availability,
+      ...finalist.deliveryBy !== void 0 ? { deliveryBy: finalist.deliveryBy } : {},
+      ...finalist.trustLevel !== void 0 ? { trustLevel: finalist.trustLevel } : {},
+      sponsored: finalist.sponsored,
+      ...finalist.landedCost !== void 0 ? {
+        landedCost: {
+          knownTotal: finalist.landedCost.knownTotal,
+          unknownComponents: finalist.landedCost.unknownComponents,
+          completeness: finalist.landedCost.completeness
+        }
+      } : {},
+      sellerState: finalist.sellerState,
+      freshness: finalist.freshness,
+      verificationState: finalist.verificationState,
+      decisionStatus: finalist.decisionStatus,
+      importantUnknowns: boundedValues(
+        finalist.importantUnknowns,
+        12,
+        DISPLAY_TEXT_MAX,
+        ProjectionWarning.candidateText,
+        ProjectionWarning.candidateEntries,
+        warnings
+      ),
+      decisiveDownside: boundedText(
+        finalist.decisiveDownside,
+        DISPLAY_TEXT_MAX,
+        ProjectionWarning.candidateText,
+        warnings
+      ),
+      whyThis: boundedValues(
+        finalist.whyThis,
+        50,
+        DISPLAY_TEXT_MAX,
+        ProjectionWarning.candidateText,
+        ProjectionWarning.candidateEntries,
+        warnings
+      ),
+      tradeoffs: finalist.tradeoffs.slice(0, 20).map((tradeoff) => ({
+        dimension: tradeoff.dimension,
+        detail: boundedText(tradeoff.detail, DISPLAY_TEXT_MAX, ProjectionWarning.tradeoffDetail, warnings)
+      }))
+    }];
+  });
+  if (input.brief.coverage.length > 100) warnings.add(ProjectionWarning.coverageEntries);
+  const coverage = input.brief.coverage.slice(0, 100).map((entry) => ({
+    store: boundedText(entry.store, OFFER_REFERENCE_MAX, ProjectionWarning.coverageStore, warnings),
+    status: entry.status,
+    offerCount: entry.offerCount,
+    ...entry.detail !== void 0 ? { detail: boundedText(entry.detail, DISPLAY_TEXT_MAX, ProjectionWarning.coverageDetail, warnings) } : {}
+  }));
+  if ((input.interpreted?.appliedProfileEntries.length ?? 0) > 64 || (input.interpreted?.overriddenProfileEntries.length ?? 0) > 64) {
+    warnings.add(ProjectionWarning.profileEffect);
+  }
+  const profileEffects = {
+    applied: (input.interpreted?.appliedProfileEntries ?? []).slice(0, 64).map((entry) => ({
+      id: boundedText(entry.id, 200, ProjectionWarning.profileEffect, warnings),
+      origin: entry.origin,
+      kind: boundedText(entry.kind, 100, ProjectionWarning.profileEffect, warnings),
+      appliedTo: boundedText(entry.appliedTo, 200, ProjectionWarning.profileEffect, warnings),
+      detail: boundedText(entry.detail, DISPLAY_TEXT_MAX, ProjectionWarning.profileEffect, warnings)
+    })),
+    overridden: (input.interpreted?.overriddenProfileEntries ?? []).slice(0, 64).map((entry) => ({
+      id: boundedText(entry.id, 200, ProjectionWarning.profileEffect, warnings),
+      origin: entry.origin,
+      kind: boundedText(entry.kind, 100, ProjectionWarning.profileEffect, warnings),
+      appliedTo: boundedText(entry.appliedTo, 200, ProjectionWarning.profileEffect, warnings),
+      detail: boundedText(entry.detail, DISPLAY_TEXT_MAX, ProjectionWarning.profileEffect, warnings),
+      overriddenBy: boundedText(entry.overriddenBy, DISPLAY_TEXT_MAX, ProjectionWarning.profileEffect, warnings)
+    }))
+  };
+  return PersistedDecisionStateSchema.parse({
+    searchId: input.brief.searchId,
+    request: boundedText(input.brief.query.text, DISPLAY_TEXT_MAX, ProjectionWarning.requestText, warnings),
+    criteria: boundedCriteria,
+    candidates,
+    coverage,
+    unresolvedResearchQuestions: input.brief.unresolvedResearchQuestions,
+    readiness: {
+      status: input.decisionReadiness.status,
+      reasons: input.decisionReadiness.reasons
+    },
+    projectionWarnings: [...warnings],
+    chosenOffer: input.chosenOffer ?? null,
+    outcome: input.outcome ?? null,
+    profileEffects
+  });
+}
+function withDecisionOutcome(state, outcome) {
+  return PersistedDecisionStateSchema.parse({ ...state, outcome: outcome.state });
+}
+function readDecisionStates(auditPath, options = {}) {
+  const requestedLimit = options.limit ?? 20;
+  const limit = Math.min(50, Math.max(1, Number.isFinite(requestedLimit) ? Math.floor(requestedLimit) : 20));
+  const states = [];
+  const handledSearchIds = /* @__PURE__ */ new Set();
+  let invalidRecords = 0;
+  forEachLineFromEnd(auditPath, (line) => {
+    if (states.length >= limit) return false;
+    if (line.trim().length === 0) return;
+    let event;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      return;
+    }
+    if (typeof event !== "object" || event === null || Array.isArray(event)) return;
+    const record2 = event;
+    if (!("decisionState" in record2)) return;
+    const statedSearchId = typeof record2.searchId === "string" ? record2.searchId : typeof record2.decisionState === "object" && record2.decisionState !== null && !Array.isArray(record2.decisionState) && typeof record2.decisionState.searchId === "string" ? record2.decisionState.searchId : void 0;
+    if (statedSearchId === void 0 || handledSearchIds.has(statedSearchId)) return;
+    handledSearchIds.add(statedSearchId);
+    const parsed = PersistedDecisionStateSchema.safeParse(record2.decisionState);
+    if (!parsed.success || parsed.data.searchId !== statedSearchId) {
+      invalidRecords += 1;
+      return;
+    }
+    states.push(parsed.data);
+  }, options.chunkSize);
+  return { states, invalidRecords };
+}
+var DISPLAY_TEXT_MAX, OFFER_REFERENCE_MAX, MERCHANT_NAME_MAX, DecisionTextSchema, DecisionIdentifierSchema, DecisionOfferReferenceSchema, DecisionMerchantIdentifierSchema, DecisionUrlSchema, DecisionProjectionWarningSchema, ProjectionWarning, BoundedCriteriaSchema, BoundedCoverageSchema, BoundedTradeoffSchema, BoundedProfileEffectSchema, BoundedProfileEffectsSchema, PersistedLandedCostSchema, PersistedDecisionCandidateSchema, PersistedDecisionStateSchema;
+var init_decision_state = __esm({
+  "../client/src/decision-state.ts"() {
+    "use strict";
+    init_zod();
+    init_dist();
+    init_bounded_tail_reader();
+    DISPLAY_TEXT_MAX = 2e3;
+    OFFER_REFERENCE_MAX = 500;
+    MERCHANT_NAME_MAX = 200;
+    DecisionTextSchema = external_exports.string().min(1).max(DISPLAY_TEXT_MAX);
+    DecisionIdentifierSchema = external_exports.string().min(1).max(200);
+    DecisionOfferReferenceSchema = external_exports.string().min(1).max(OFFER_REFERENCE_MAX);
+    DecisionMerchantIdentifierSchema = external_exports.string().min(1).max(OFFER_REFERENCE_MAX);
+    DecisionUrlSchema = external_exports.string().url().max(DISPLAY_TEXT_MAX);
+    DecisionProjectionWarningSchema = external_exports.string().min(1).max(200);
+    ProjectionWarning = {
+      requestText: "Request text was shortened for the local Decisions display.",
+      criteriaValue: "Criteria values were shortened for the local Decisions display.",
+      criteriaEntries: "Some criteria values were omitted from the local Decisions display.",
+      coverageStore: "Coverage store names were shortened for the local Decisions display.",
+      coverageDetail: "Coverage details were shortened for the local Decisions display.",
+      coverageEntries: "Some coverage entries were omitted from the local Decisions display.",
+      candidateTitle: "Candidate titles were shortened for the local Decisions display.",
+      candidateUrl: "Candidate product links were omitted because they exceeded the local Decisions display bound.",
+      candidateImageUrl: "Candidate image links were omitted because they exceeded the local Decisions display bound.",
+      merchantId: "Merchant identifiers were shortened for the local Decisions display.",
+      merchantName: "Merchant names were shortened for the local Decisions display.",
+      candidateText: "Candidate decision details were shortened for the local Decisions display.",
+      candidateEntries: "Some candidate decision details were omitted from the local Decisions display.",
+      tradeoffDetail: "Candidate tradeoff details were shortened for the local Decisions display.",
+      profileEffect: "Some profile effects were shortened or omitted from the local decision record."
+    };
+    BoundedCriteriaSchema = external_exports.object({
+      text: DecisionTextSchema,
+      maxPrice: MoneySchema.optional(),
+      mustHaveAttributes: external_exports.array(external_exports.string().min(1).max(500)).max(32).optional(),
+      deliveryBy: external_exports.iso.date().optional(),
+      ethicsFlags: external_exports.array(external_exports.string().min(1).max(500)).max(16).optional(),
+      maxResults: external_exports.int().positive().max(100).optional(),
+      criteria: external_exports.array(DecisionCriterionSchema).max(16).optional()
+    }).strict();
+    BoundedCoverageSchema = external_exports.array(
+      external_exports.object({
+        store: DecisionOfferReferenceSchema,
+        status: external_exports.enum(["searched", "blocked", "not_configured", "error"]),
+        offerCount: external_exports.int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+        detail: DecisionTextSchema.optional()
+      }).strict()
+    ).max(100);
+    BoundedTradeoffSchema = external_exports.object({
+      dimension: external_exports.enum(["price", "delivery", "trust", "spec"]),
+      detail: DecisionTextSchema
+    }).strict();
+    BoundedProfileEffectSchema = external_exports.object({
+      id: external_exports.string().min(1).max(200),
+      origin: external_exports.enum(["stated", "inferred"]),
+      kind: external_exports.string().min(1).max(100),
+      appliedTo: external_exports.string().min(1).max(200),
+      detail: DecisionTextSchema
+    }).strict();
+    BoundedProfileEffectsSchema = external_exports.object({
+      applied: external_exports.array(BoundedProfileEffectSchema).max(64),
+      overridden: external_exports.array(BoundedProfileEffectSchema.extend({ overriddenBy: DecisionTextSchema })).max(64)
+    }).strict();
+    PersistedLandedCostSchema = external_exports.object({
+      knownTotal: MoneySchema,
+      unknownComponents: external_exports.array(LandedCostComponentKindSchema).max(5),
+      completeness: external_exports.enum(["complete", "partial"])
+    }).strict();
+    PersistedDecisionCandidateSchema = external_exports.object({
+      role: external_exports.enum(["top_fit", "lower_risk", "budget_or_different"]),
+      roleReason: external_exports.string().trim().min(1).max(2e3),
+      rank: external_exports.int().positive(),
+      sourceStore: DecisionOfferReferenceSchema,
+      offerId: DecisionOfferReferenceSchema,
+      title: DecisionTextSchema,
+      url: DecisionUrlSchema.optional(),
+      imageUrl: DecisionUrlSchema.optional(),
+      productIdentity: ExactProductIdentitySchema.optional(),
+      merchant: external_exports.object({
+        id: DecisionMerchantIdentifierSchema,
+        name: external_exports.string().min(1).max(MERCHANT_NAME_MAX)
+      }).strict(),
+      price: MoneySchema,
+      availability: AvailabilitySchema,
+      deliveryBy: external_exports.iso.date().optional(),
+      trustLevel: TrustLevelSchema.optional(),
+      sponsored: external_exports.boolean(),
+      landedCost: external_exports.union([PersistedLandedCostSchema, LandedCostSchema]).optional(),
+      sellerState: TrustLevelSchema,
+      freshness: FreshnessSchema,
+      verificationState: external_exports.enum(["agent_observed", "merchant_verified"]),
+      decisionStatus: external_exports.enum(["eliminated", "provisional", "ready"]),
+      importantUnknowns: external_exports.array(DecisionTextSchema).max(12),
+      decisiveDownside: DecisionTextSchema,
+      whyThis: external_exports.array(DecisionTextSchema).min(1).max(50),
+      tradeoffs: external_exports.array(BoundedTradeoffSchema).max(20)
+    }).strict();
+    PersistedDecisionStateSchema = external_exports.object({
+      searchId: DecisionIdentifierSchema,
+      request: DecisionTextSchema,
+      criteria: BoundedCriteriaSchema,
+      candidates: external_exports.array(PersistedDecisionCandidateSchema).max(3),
+      coverage: BoundedCoverageSchema,
+      unresolvedResearchQuestions: BuyersBriefSchema.shape.unresolvedResearchQuestions,
+      readiness: external_exports.object({
+        status: external_exports.enum(["insufficient", "provisional", "ready"]),
+        reasons: external_exports.array(external_exports.string().trim().min(1).max(100)).max(50)
+      }).strict(),
+      projectionWarnings: external_exports.array(DecisionProjectionWarningSchema).max(20).default([]),
+      chosenOffer: external_exports.object({
+        sourceStore: DecisionOfferReferenceSchema,
+        offerId: DecisionOfferReferenceSchema
+      }).strict().nullable(),
+      outcome: external_exports.enum(["kept", "returned", "cancelled", "failed"]).nullable(),
+      profileEffects: BoundedProfileEffectsSchema.default({ applied: [], overridden: [] })
+    }).strict();
   }
 });
 
@@ -48318,20 +48222,6 @@ function profileEntryLine(e) {
   const marker = origin === "stated" ? "[STATED]" : "[INFERRED \u2014 auto-learned, delete anytime via update_profile deleteIds]";
   return `  ${marker} ${id} (${kind}): ${JSON.stringify(fields)} \u2014 from ${source} at ${createdAt}`;
 }
-function rankedResultLine(r, index) {
-  const o = r.offer;
-  const placementFlag = o.acquisition?.placement === "unknown" ? "PLACEMENT NOT CONFIRMED (de-prioritized)" : o.sponsored ? "SPONSORED (de-prioritized)" : null;
-  const flags = [placementFlag, o.availability].filter(Boolean).join(", ");
-  const reasons = r.reasons.map(
-    (reason) => `      - [${reason.criterion}] ${o.acquisition?.placement === "unknown" && reason.criterion === "sponsored_deprioritization" ? "placement not confirmed: treated like sponsored and ranked below confirmed organic offers" : reason.detail}`
-  ).join("\n");
-  return [
-    `  ${index + 1}. ${o.product.title}`,
-    `      ${money(o.price)} from ${o.merchant.name} (${o.merchant.id}) via ${o.sourceStore} \u2014 ${flags}`,
-    `      offerId: ${o.id} | score: ${r.score.toFixed(2)}`,
-    reasons
-  ].join("\n");
-}
 function logicalClaimKey(claim) {
   return JSON.stringify([
     claim.lane,
@@ -48475,6 +48365,9 @@ Subject: ${subject}
     async ({ skill: requestedSkill, request, subject }) => {
       const skill = researchSkills.find((candidate) => candidate.id === requestedSkill);
       const identityField = skill.id === "product-research" ? "subjectIdentity" : "sellerIdentity";
+      const requiredFields = Object.keys(SourcedClaimSchema.shape).filter(
+        (field) => field !== "sellerIdentity" || skill.id === "seller-research"
+      );
       const plan = {
         skill: skill.id,
         skillResourceUri: skill.resourceUri,
@@ -48484,20 +48377,7 @@ Subject: ${subject}
         limits: researchLimitsFromContent(skill.content, skill.id),
         claimFormat: {
           identityField,
-          requiredFields: [
-            "checklistIds",
-            identityField,
-            "claim",
-            "sourceIds",
-            "sourceRelationship",
-            "sourceUse",
-            "sourceUrl",
-            "sourceType",
-            "observedAt",
-            "confidence",
-            "conflicts",
-            "unknowns"
-          ]
+          requiredFields
         }
       };
       return success2(plan);
@@ -48527,16 +48407,14 @@ Subject: ${subject}
       }
     }
     let outcomes = [];
-    let lifecycleReminders = [];
     if (deps.orderGraph) {
       try {
         outcomes = deps.orderGraph.listOutcomes();
-        lifecycleReminders = deps.orderGraph.listLifecycleReminders();
       } catch {
         outcomes = [];
       }
     }
-    return deriveLocalTrustEvidence({ merchant, checkoutOrders, graphOrders, outcomes, lifecycleReminders });
+    return deriveLocalTrustEvidence({ merchant, checkoutOrders, graphOrders, outcomes });
   }
   server.registerResource(
     "buyers-brief-widget",
@@ -48682,21 +48560,13 @@ Subject: ${subject}
     }
     seenBriefs.set(searchId, brief);
     decisionSearches.set(searchId, { data, brief, evidence: [], decisionReadiness, interpreted });
-    const statusLines = storeStatuses.map(
-      (s) => s.ok ? `  \u2713 ${s.store}: ${s.offerCount} offer(s) in ${s.durationMs}ms` : `  \u2717 ${s.store}: ${s.error.code} \u2014 ${s.error.message}`
-    ).join("\n");
     const text = [
-      `${results.length} offer(s), ranked by YOUR criteria only (sponsored always labeled + last):`,
       ...continuedFrom !== void 0 ? [`Continued from search ${continuedFrom}.`] : [],
       ...browserObservationReport !== void 0 ? [
         `Browser observations: ${browserObservationReport.accepted}/${browserObservationReport.submitted} accepted; ${browserObservationReport.rejected.length} rejected.`
       ] : [],
       ...interpretedQueryLines(interpreted, searchId),
       ...rankingVerificationLines(verification),
-      ...results.map((r, i) => rankedResultLine(r, i)),
-      ``,
-      `Store statuses:`,
-      statusLines,
       ...coverage.verified === false ? [`WARNING: configured engine coverage mismatch \u2014 missing: ${coverage.missing.join(", ") || "none"}; unexpected: ${coverage.unexpected.join(", ") || "none"}.`] : coverage.verified === "not_applicable" ? [`Coverage verification unavailable: this engine did not enumerate registered stores.`] : [],
       ``,
       renderBriefMarkdown(brief)
@@ -48773,7 +48643,7 @@ Subject: ${subject}
     "search_products",
     {
       title: "Search products (neutrally ranked)",
-      description: "Search for products across the configured stores (Shopify storefronts, eBay, Etsy, Amazon) and get back offers ranked ONLY by the buyer's criteria (price, spec match, delivery, availability, merchant trust, ethics). No seller can pay for position: sponsored listings are always labeled and always ranked below every organic result. Every result carries machine-readable `reasons` explaining its rank \u2014 show them to the user. Per-store failures never fail the search; they are reported in `storeStatuses` (e.g. a store that is not configured says so honestly). Results from this search are the ONLY offers that can be purchased afterwards. Every response is verified locally: this client re-runs the OPEN rankOffers over the returned offers + trust signals and compares orders \u2014 `rankingVerified` reports the outcome, and any divergence (a tampered/boosted ranking) is included in `rankingDivergences` and MUST be surfaced to the user. The user's saved profile defaults (budget, size, ethics, delivery) are merged into thin queries with explicit precedence \u2014 per-query criteria ALWAYS override profile defaults \u2014 and `interpretedQuery` echoes exactly how the query was read (post-merge criteria, which profile entries applied by id+origin, which were overridden, and which query words matched no structured criterion): show this reading to the user so they can correct it. The structured output also carries `brief` \u2014 the buyer's brief (buyer brief): \u22645 finalists with whyThis phrased against the user's criteria, computed tradeoffs, per-cell provenance (source URL + fetchedAt), a rejected appendix with eliminating criteria, and per-store coverage listing EVERY registered store (blocked and unconfigured stores included \u2014 silent skipping forbidden). It is composed by code from the ranked results, never generated. Show it to the user (hosts with MCP Apps render the linked widget; otherwise use the markdown rendering appended to this tool's text). " + ELICITATION_GUIDANCE,
+      description: "Search for products across the configured stores (Shopify storefronts, eBay, Etsy, Amazon) and get back offers ranked ONLY by the buyer's criteria (price, spec match, delivery, availability, merchant trust, ethics). No seller can pay for position: sponsored listings are always labeled and always ranked below every organic result. Every result carries machine-readable `reasons` explaining its rank in structured detail. Per-store failures never fail the search; they are reported in `storeStatuses` (e.g. a store that is not configured says so honestly). Results from this search are the ONLY offers that can be purchased afterwards. Every response is verified locally: this client re-runs the OPEN rankOffers over the returned offers + trust signals and compares orders \u2014 `rankingVerified` reports the outcome, and any divergence (a tampered/boosted ranking) is included in `rankingDivergences` and MUST be surfaced to the user. The user's saved profile defaults (budget, size, ethics, delivery) are merged into thin queries with explicit precedence \u2014 per-query criteria ALWAYS override profile defaults \u2014 and `interpretedQuery` echoes exactly how the query was read (post-merge criteria, which profile entries applied by id+origin, which were overridden, and which query words matched no structured criterion): show this reading to the user so they can correct it. The default `brief` shows at most three role-based candidates. Additional finalists, rejections, raw reasons, provenance, and complete coverage remain in structured/widget expansion instead of being duplicated in the default text. It is composed by code from the ranked results, never generated. " + ELICITATION_GUIDANCE,
       _meta: BRIEF_WIDGET_TOOL_META,
       inputSchema: {
         text: external_exports.string().min(1).describe("what to buy, in plain language"),
@@ -49019,7 +48889,7 @@ Subject: ${subject}
     "get_buyers_brief",
     {
       title: "Re-emit the buyer's brief for a previous search",
-      description: "Re-emit the buyer's brief for a searchId returned by search_products in this session: \u22645 finalists (never padded) with whyThis phrased against the user's criteria, computed tradeoffs vs the other finalists, per-cell provenance (source URL + fetchedAt), the rejected appendix with the criteria that eliminated each offer, and per-store coverage listing EVERY registered store \u2014 blocked and unconfigured stores included, silent skipping forbidden. The brief is composed by code from the ranked results, never generated; the text content is its deterministic markdown rendering (the universal fallback for non-Apps hosts).",
+      description: "Re-emit the deterministic buyer's brief for a searchId returned by search_products in this session. The default text shows at most three role-based candidates; additional finalists, rejections, raw reasons, provenance, and complete store coverage remain available in structured/widget expansion.",
       _meta: BRIEF_WIDGET_TOOL_META,
       inputSchema: {
         searchId: external_exports.string().min(1).describe("searchId from a search_products result in this session")
@@ -50200,7 +50070,7 @@ var init_server3 = __esm({
       "ui/resourceUri": BRIEF_WIDGET_URI
     };
     NORTHCINDER_MCP_SERVER_NAME = BRAND_NAME;
-    NORTHCINDER_MCP_SERVER_VERSION = "0.2.0";
+    NORTHCINDER_MCP_SERVER_VERSION = "0.2.1";
     RANKING_TAMPER_WARNING = "\u26A0\uFE0F RANKING VERIFICATION FAILED: the configured engine's result order does NOT match this client's own recomputation of the open rankOffers over the same offers and trust signals. Treat this ordering as untrusted and show the user the divergence:";
     ELICITATION_GUIDANCE = `If the buyer's criteria are thin (no budget, size, or constraints), ask ONE short usage-based clarifying question first \u2014 e.g. "How will you use it?" or "How often / where will you use it?" \u2014 instead of quizzing them on technical attributes; usage answers reveal the criteria that matter.`;
     MERGEABLE_EVIDENCE_FIELDS = [
@@ -50630,9 +50500,9 @@ if (process.argv[2] === "--help" || process.argv[2] === "-h") {
 } else if (process.argv[2] === "service" && (process.argv.includes("--help") || process.argv.includes("-h"))) {
   process.stdout.write(SERVICE_USAGE);
 } else if (process.argv[2] === "service" && (process.argv.includes("--version") || process.argv.includes("-v"))) {
-  process.stdout.write("northcinder service 0.2.0\n");
+  process.stdout.write("northcinder service 0.2.1\n");
 } else if (process.argv.includes("--version") || process.argv.includes("-v")) {
-  process.stdout.write("northcinder 0.2.0\n");
+  process.stdout.write("northcinder 0.2.1\n");
 } else if (process.argv[2] !== void 0 && process.argv[2] !== "init" && process.argv[2] !== "service") {
   process.stderr.write(`Unknown command: ${process.argv[2]}
 

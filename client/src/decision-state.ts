@@ -42,7 +42,7 @@ const ProjectionWarning = {
   candidateText: "Candidate decision details were shortened for the local Decisions display.",
   candidateEntries: "Some candidate decision details were omitted from the local Decisions display.",
   tradeoffDetail: "Candidate tradeoff details were shortened for the local Decisions display.",
-  profileEffect: "Profile effect details were shortened for the local Decisions display.",
+  profileEffect: "Some profile effects were shortened or omitted from the local decision record.",
 } as const;
 
 function boundedText(value: string, maximum: number, warning: string, warnings: Set<string>): string {
@@ -304,6 +304,12 @@ export function projectDecisionState(input: {
       ? { detail: boundedText(entry.detail, DISPLAY_TEXT_MAX, ProjectionWarning.coverageDetail, warnings) }
       : {}),
   }));
+  if (
+    (input.interpreted?.appliedProfileEntries.length ?? 0) > 64 ||
+    (input.interpreted?.overriddenProfileEntries.length ?? 0) > 64
+  ) {
+    warnings.add(ProjectionWarning.profileEffect);
+  }
   const profileEffects = {
     applied: (input.interpreted?.appliedProfileEntries ?? []).slice(0, 64).map((entry) => ({
       id: boundedText(entry.id, 200, ProjectionWarning.profileEffect, warnings),

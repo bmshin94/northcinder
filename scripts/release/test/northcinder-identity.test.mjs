@@ -23,16 +23,13 @@ test("NorthCinder is the canonical public and workspace identity", () => {
   assert.match(read("client/src/brand.ts"), /BRAND_SLUG\s*=\s*"northcinder"/);
 });
 
-test("NorthCinder owns new state while Brier remains a compatibility boundary", () => {
+test("NorthCinder owns new state while Brier remains a config compatibility boundary", () => {
   const config = read("packages/protocol/src/config-dir.ts");
-  const mandate = read("packages/checkout/src/mandate/canonical.ts");
 
   assert.match(config, /NORTHCINDER_/);
   assert.match(config, /BRIER_/);
   assert.match(config, /join\(canonicalBase, "northcinder"\)/);
   assert.match(config, /join\(canonicalBase, "brier"\)/);
-  assert.match(mandate, /"northcinder\.purchase-mandate\.v1"/);
-  assert.match(mandate, /"brier\.purchase-mandate\.v1"/);
 });
 
 test("public release provenance contains no former identity or rename narrative", () => {

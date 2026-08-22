@@ -58,9 +58,9 @@ NorthCinder supplies the contract and deterministic bounded plan. It does not br
 AI app controls any research tools. The launcher, client, and MCPB build paths carry the same skill files,
 and initialization writes owner-only local copies beside the runtime files.
 
-Routine-use support is qualified only for Codex CLI 0.147.0 with `gpt-5.6-luna` at medium reasoning over
-local STDIO MCP. Other host/model combinations remain unqualified. Treat research output as provisional until
-you verify the exact product or seller identity, source independence, counterevidence, and reported unknowns.
+No host and model combination is currently qualified for routine research use. Treat research output as
+provisional until you verify the exact product or seller identity, source independence, counterevidence, and
+reported unknowns.
 
 ## Self-hosted engine
 

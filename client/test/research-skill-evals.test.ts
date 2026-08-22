@@ -50,36 +50,64 @@ function validFitOutput() {
     selectedSourceIds: ["manual-2026-xs", "lab-2025-xs", "retailer-mixed", "owner-2026-xs"],
     claims: [
       {
+        lane: "product",
+        checklistIds: ["product.identity", "product.primary-facts", "product.fit-compatibility"],
         claim: "The exact 2026 XS/S manual states a 14-17 inch torso range and a 12 kg maximum recommended load.",
         subjectIdentity: "AlderWorks CarryFrame 38, women's XS/S torso, 2026 revision",
         sourceIds: ["manual-2026-xs"],
         sourceRelationship: "primary",
         sourceUse: "subject_evidence",
+        sourceUrl: "https://manual.example.test/carryframe-38-2026-xs",
+        sourceType: "official manual",
+        observedAt: "2026-08-19T12:00:00Z",
         confidence: "high",
+        conflicts: [],
+        unknowns: [],
       },
       {
+        lane: "product",
+        checklistIds: ["product.independent-evidence", "product.counterevidence"],
         claim: "The 2025 XS/S test is context only and cannot establish comfort for the 2026 revision.",
         subjectIdentity: "AlderWorks CarryFrame 38, women's XS/S torso, 2026 revision",
         sourceIds: ["lab-2025-xs"],
         sourceRelationship: "independent",
         sourceUse: "context_only",
+        sourceUrl: "https://lab.example.test/carryframe-38-2025-xs",
+        sourceType: "independent harness test",
+        observedAt: "2026-08-19T12:00:00Z",
         confidence: "medium",
+        conflicts: [],
+        unknowns: [],
       },
       {
+        lane: "product",
+        checklistIds: ["product.commercial-claims"],
         claim: "The mixed retailer listing advertises 15 kg without identifying the size or revision.",
         subjectIdentity: "AlderWorks CarryFrame 38, women's XS/S torso, 2026 revision",
         sourceIds: ["retailer-mixed"],
         sourceRelationship: "commercial",
         sourceUse: "commercial_claim",
+        sourceUrl: "https://retailer.example.test/carryframe-38",
+        sourceType: "retailer listing",
+        observedAt: "2026-08-19T12:00:00Z",
         confidence: "unverified",
+        conflicts: [],
+        unknowns: [],
       },
       {
+        lane: "product",
+        checklistIds: ["product.failure-modes", "product.counterevidence"],
         claim: "Two exact-variant owner reports give mixed comfort outcomes below the buyer's 13 kg load.",
         subjectIdentity: "AlderWorks CarryFrame 38, women's XS/S torso, 2026 revision",
         sourceIds: ["owner-2026-xs"],
         sourceRelationship: "owner",
         sourceUse: "counterevidence",
+        sourceUrl: "https://owners.example.test/carryframe-38-2026-xs",
+        sourceType: "owner reports",
+        observedAt: "2026-08-19T12:00:00Z",
         confidence: "low",
+        conflicts: [],
+        unknowns: ["No independent exact-revision comfort measurement was available."],
       },
     ],
     unknowns: [
@@ -92,19 +120,22 @@ function validFitOutput() {
       },
     ],
     counterevidenceSourceIds: ["lab-2025-xs", "owner-2026-xs"],
-    checklistItemIds: [
-      "product.identity",
-      "product.intended-use",
-      "product.primary-facts",
-      "product.independent-evidence",
-      "product.fit-compatibility",
-      "product.failure-modes",
-      "product.counterevidence",
-      "product.commercial-claims",
-      "product.unknowns",
-      "product.stop-receipt",
-    ],
-    provisional: true,
+    receipt: {
+      checklistItemIds: [
+        "product.identity",
+        "product.intended-use",
+        "product.primary-facts",
+        "product.independent-evidence",
+        "product.fit-compatibility",
+        "product.failure-modes",
+        "product.counterevidence",
+        "product.commercial-claims",
+        "product.unknowns",
+        "product.stop-receipt",
+      ],
+      openChecklistItemIds: ["product.fit-compatibility", "product.unknowns"],
+      provisional: true,
+    },
   };
 }
 
@@ -128,8 +159,7 @@ describe("research-skill evaluation scenarios", () => {
               "unknowns",
               "conflicts",
               "counterevidenceSourceIds",
-              "checklistItemIds",
-              "provisional",
+              "receipt",
             ],
           },
         },
@@ -170,7 +200,8 @@ describe("deterministic output grading", () => {
 
   it("classifies a confident answer when a stop condition applies", () => {
     const output = validFitOutput();
-    output.provisional = false;
+    output.receipt.openChecklistItemIds = [];
+    output.receipt.provisional = false;
     expect(gradeOutput(loadScenario(), output).failureCategories).toContain(
       "confident_stop_condition_violation",
     );
@@ -179,6 +210,12 @@ describe("deterministic output grading", () => {
   it("classifies malformed claims instead of accepting prose-shaped records", () => {
     const output = validFitOutput();
     delete (output.claims[0] as Partial<(typeof output.claims)[number]>).sourceUse;
+    expect(gradeOutput(loadScenario(), output).failureCategories).toContain("malformed_claims");
+  });
+
+  it("uses the runtime claim schema instead of a looser evaluator-only claim shape", () => {
+    const output = validFitOutput();
+    delete (output.claims[0] as Partial<(typeof output.claims)[number]>).lane;
     expect(gradeOutput(loadScenario(), output).failureCategories).toContain("malformed_claims");
   });
 
@@ -191,12 +228,12 @@ describe("deterministic output grading", () => {
   it("classifies a claim that cites a supplied but unselected source as malformed", () => {
     const output = validFitOutput();
     output.claims.push({
+      ...output.claims[0]!,
       claim: "The different M/L sizing line is context only and cannot establish fit for the XS/S subject.",
-      subjectIdentity: "AlderWorks CarryFrame 38, women's XS/S torso, 2026 revision",
       sourceIds: ["maker-2026-ml"],
       sourceRelationship: "primary",
       sourceUse: "context_only",
-      confidence: "high",
+      sourceUrl: "https://maker.example.test/carryframe-38-2026-ml",
     });
     expect(gradeOutput(loadScenario(), output).failureCategories).toContain("malformed_claims");
   });
@@ -210,7 +247,9 @@ describe("deterministic output grading", () => {
 
   it("classifies missing canonical checklist items", () => {
     const output = validFitOutput();
-    output.checklistItemIds = output.checklistItemIds.filter((id) => id !== "product.stop-receipt");
+    output.receipt.checklistItemIds = output.receipt.checklistItemIds.filter(
+      (id) => id !== "product.stop-receipt",
+    );
     expect(gradeOutput(loadScenario(), output).failureCategories).toContain("missing_checklist_items");
   });
 });
