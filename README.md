@@ -1,12 +1,14 @@
 # NorthCinder
 
-**Compare the evidence, explain the tradeoff, and ask before buying.**
+**Your shopping agent should work for you.**
 
-Agentic commerce should not hand shopping decisions to the largest marketplaces. When a platform controls what an agent sees and profits from its recommendations, the agent inherits those incentives. NorthCinder gives buyers an independent layer between their AI app and stores, where product evidence is compared on the buyer's terms.
+AI agents are starting to do more than answer shopping questions. Soon they will decide which products people see and, in some cases, buy on their behalf.
 
-Search is separate from purchase authority. Checkout requires signed approval for the exact offer and quantity. Outcomes stay local, reminders only notify, and seller payment never improves rank.
+Big marketplaces are building the easiest version of this: an agent that searches one catalog and steers the buyer toward that platform's checkout. That may be convenient, but it is not independent advice. The marketplace still decides what can be seen and makes money when the agent closes the sale.
 
-NorthCinder is software you run with your AI app. The repository owner does not operate a NorthCinder service. There is no account, hosted control plane, or telemetry service.
+NorthCinder takes a different approach. It compares products from the sources you choose and shows where its facts came from. Before it buys anything, it asks for your approval. NorthCinder is software you run alongside your AI app.
+
+The repository owner does not operate a NorthCinder service. There is no NorthCinder account or cloud service.
 
 ## Get started
 
@@ -16,97 +18,76 @@ You need Node.js 20 or later and an MCP-capable AI app.
 npx northcinder init
 ```
 
-It prints the MCP configuration. Local mode is buyer-run, keyless, and one process, with no fixed port or second service command. Try:
+The command saves your configuration on your computer and prints the MCP entry for your AI app. Local mode is keyless. It runs the MCP server and search engine together in one process, using a temporary loopback port.
+
+Once connected, try a real shopping brief:
 
 > Find black wool running shoes under $130. Compare price, delivery, fit, and merchant trust. Tell me why the winner ranked first and which options were ruled out.
 
-## Research a product or seller
+## What a result looks like
 
-NorthCinder has product and seller research contracts. Before research, your MCP host must:
+NorthCinder does not pretend there is one universal "best" product. It normally shows no more than three useful choices: the strongest fit, a lower-risk option, and a cheaper or meaningfully different option when one exists.
+
+Each result explains why it ranked where it did. You can also inspect the other finalists, rejected offers, and facts that could not be verified.
+
+## Research before recommendation
+
+Product research gets messy quickly. Model names overlap, sellers copy one another, and a polished product page can hide the one detail that makes an item wrong for the buyer.
+
+NorthCinder includes separate research guides for products and sellers. Before doing the research, the MCP host should:
 
 1. Read `northcinder://research/product` or `northcinder://research/seller`.
-2. Call `create_research_plan` with the concrete request and exact subject.
-3. Follow its checklist and limits with tools you control.
+2. Call `create_research_plan` with the actual request and exact subject.
+3. Follow the returned checklist with the research tools it already controls.
 
-All builds include both skills. Exact identity, landed cost, policies, and sourced claims establish readiness; missing evidence stays provisional. Research affects readiness and provenance, not rank. Routine-use support is qualified only for Codex CLI 0.147.0 with `gpt-5.6-luna` at medium reasoning over local STDIO MCP. Other host/model combinations remain unqualified.
+If the sources disagree or do not identify the exact product or seller, the result stays provisional. Research can decide whether an offer is ready to compare, but it cannot add ranking points.
 
-## Inspecting a decision
+So far, we have tested this workflow end to end with Codex CLI 0.147.0, `gpt-5.6-luna`, medium reasoning, and local STDIO MCP. We do not yet make the same claim for other hosts or models.
 
-The default brief shows at most three role-based candidates. It does not claim a universal best. Other finalists, rejections, reasons, and provenance remain available.
+## Buying stays a separate decision
 
-The buyer-local dashboard shows bounded, redacted decision state and exact-attribution outcomes. It excludes session buyer context, full claims, and raw rejected-offer detail.
+A recommendation is not permission to buy. Every checkout needs a fresh approval for one exact offer and one unit. The signed approval includes the merchant, variant, price, known total, and spending cap. It can be used once.
 
-## After an order
+NorthCinder rejects raw card details. A supported automated checkout can use an opaque payment token, or NorthCinder can hand the buyer a cart link to finish in their own browser.
 
-`record_order_outcome` records buyer-confirmed outcomes only. A decision is
-updated only for one exact checkout tuple. Warranty and maintenance dates are
-explicit buyer-local facts: reminders notify only, never act. Feedback proposals
-become preferences only when confirmed or repeated independently.
+Order outcomes stay local and only attach to the purchase they belong to. NorthCinder does not silently rewrite the buyer's profile, and its reminders only send notifications.
 
-## The contract you can inspect
+## Rules you can inspect
 
-| Concern | NorthCinder's rule | Evidence |
-| --- | --- | --- |
-| Ranking | Buyer criteria determine order. Seller payment is not an input. | [Ranking specification](./docs/RANKING.md) and [ranking source](./packages/protocol/src/ranking/rank.ts) |
-| Sponsored offers | Labeled sponsored offers stay below every organic result. | [Neutrality audit](./docs/NEUTRALITY-AUDIT.md) |
-| Coverage | Unavailable and unconfigured stores stay visible. | [Adapter contract](./packages/protocol/src/adapter/store-adapter.ts) |
-| Merchant trust | Every merchant has explicit evidence or an honest unknown state. | [Trust specification](./docs/TRUST.md) |
-| Checkout | A versioned signed mandate binds one exact offer, quantity one, and the spending cap. Old underbound mandates fail closed. | [Checkout package](./packages/checkout) |
-| Audit | Recommendations, approvals, and checkout attempts go to a local audit trail. | [Client source](./client/src) |
+Seller payment never improves ranking. Sponsored offers stay labeled and below organic results. Missing store coverage stays visible, and unknown seller history remains unknown instead of being guessed safe or unsafe.
 
-The client reruns ranking over disclosed inputs. This verifies order, not catalog completeness or store facts.
+NorthCinder reruns the ranking locally and writes recommendations, approvals, and checkout attempts to a local audit log. The [ranking specification](./docs/RANKING.md), [trust specification](./docs/TRUST.md), [neutrality audit](./docs/NEUTRALITY-AUDIT.md), and [checkout package](./packages/checkout) contain the details.
+
+These checks cover the offers NorthCinder received, not the completeness or truth of a store's catalog.
 
 ## How NorthCinder works
 
-```mermaid
-flowchart LR
-  A["Your AI app"] -->|MCP| C["NorthCinder client"]
-  C --> S["Buyer-run search service"]
-  S --> D["Configured store adapters"]
-  S --> C
-  C --> R["Local reranking and reasons"]
-  C --> L["Local audit trail"]
-  C --> P["Buyer approval"]
-  P -->|signed single-use mandate| X["Checkout rail or cart handoff"]
-```
-
-The repository owner is not in this runtime path. You run the client and engine, choose stores, and keep local configuration and audit data.
-
-## Self-hosted engine
-
-A self-hosted engine requires `NORTHCINDER_API_KEYS` on the service, plus a matching `NORTHCINDER_CLIENT_KEY` bearer and `NORTHCINDER_SERVICE_URL` on the client. Bearer-authenticated engine URLs must use HTTPS, except for explicit loopback HTTP. The buyer generates the keys; NorthCinder does not.
+Your AI app talks to NorthCinder over MCP. NorthCinder runs the search engine locally, checks the ranking before returning it, and keeps the audit log and purchase approvals on your computer. You choose the store connections. The repository owner is not part of this path.
 
 ## Store coverage
 
-Store access varies. NorthCinder reports unavailable or blocked stores, not complete coverage.
+Store access varies, and NorthCinder says when a store was unavailable or not configured. It does not present a partial search as though it covered the whole market.
 
-| Store | What works today |
-| --- | --- |
-| [Shopify](./adapters/shopify/README.md) | Global and configured storefront catalog search use Shopify UCP with a buyer-controlled HTTPS agent profile. |
-| [WooCommerce](./adapters/woocommerce/README.md) | Works with stores exposing its public Store API. |
-| [eBay](./adapters/ebay/README.md) | Native search needs approved Buy API access. |
-| [Etsy](./adapters/etsy/README.md) | Native search needs approved app access. |
-| [Amazon](./adapters/amazon/README.md) | Read-only comparison uses a browser profile you control. It does not check out. |
+Built-in adapters cover [Shopify](./adapters/shopify/README.md), [WooCommerce](./adapters/woocommerce/README.md), [eBay](./adapters/ebay/README.md), [Etsy](./adapters/etsy/README.md), and read-only [Amazon](./adapters/amazon/README.md) comparison.
 
-Unconfigured native stores return `not_configured`. Your agent may continue on permitted product pages with browser tools it controls. NorthCinder accepts normalized product facts, not session data or page instructions. Agent-observed offers need native or merchant-protocol confirmation before checkout or an unattended watch.
+If a native connection is missing, the AI app can keep researching with its own browser or search tools. NorthCinder accepts product facts, not cookies, raw pages, passwords, or page instructions. A native connection must confirm the exact offer before checkout or an unattended watch.
 
-## Privacy and purchase control
+## Self-hosted engine
 
-- AI-provider and store credentials stay in their existing buyer-controlled systems.
+Most people should use local mode. If you choose to run the engine separately, set `NORTHCINDER_API_KEYS` on the service and configure the client with `NORTHCINDER_SERVICE_URL` and the matching `NORTHCINDER_CLIENT_KEY` bearer credential. Non-loopback bearer connections must use HTTPS.
+
+## Privacy
+
+- NorthCinder never needs your AI provider key. It stays in your AI app. Store credentials stay with you and the store.
 - NorthCinder does not send your searches, settings, or local history to the repository owner.
-- Raw card details are rejected. Automated rails use opaque delegated payment tokens when available.
-- Search and watches are not purchase permission. Every checkout needs its own approval.
-- The approval mandate is single use and protected by a cross-process nonce ledger.
+- Raw card details are rejected rather than stored or forwarded.
+- Starting a search or price watch does not give NorthCinder permission to buy anything.
 
 Read [privacy and software ownership](./docs/INDEPENDENCE.md) and the [security policy](./SECURITY.md) for the full boundary.
 
-## Project status
-
-`northcinder` 0.2.0 is the current npm release. Local mode does not need a NorthCinder account or hosted service. Store API credentials are optional; an unconfigured native connection stays visible, and your MCP host can continue with browser or search tools it already controls.
-
 ## Build from source
 
-This is a pnpm workspace. Product packages need Node.js 20 or later; the private site workspace needs Node.js 22.12 or later.
+This is a pnpm workspace. Product packages need Node.js 20 or later. The private site workspace needs Node.js 22.12 or later.
 
 ```sh
 corepack pnpm install --frozen-lockfile
@@ -114,13 +95,12 @@ corepack pnpm build
 node northcinder/bin/northcinder.js init
 ```
 
-Full release-verification commands are in [CONTRIBUTING.md](./CONTRIBUTING.md).
+The full release checks are documented in [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## Contributing and support
 
-- Read [CONTRIBUTING.md](./CONTRIBUTING.md) before proposing a change.
-- Use [GitHub Issues](https://github.com/cinderline/northcinder/issues) for reproducible bugs and focused work.
-- Use [GitHub Discussions](https://github.com/cinderline/northcinder/discussions) for questions and open-ended ideas.
+- Use [GitHub Issues](https://github.com/cinderline/northcinder/issues) for reproducible bugs and focused proposals.
+- Use [GitHub Discussions](https://github.com/cinderline/northcinder/discussions) for questions and early ideas.
 - Report vulnerabilities through [GitHub private vulnerability reporting](https://github.com/cinderline/northcinder/security/advisories/new), not a public issue.
 
 NorthCinder is open source under the [MIT License](./LICENSE).
