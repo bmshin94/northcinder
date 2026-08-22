@@ -2,7 +2,7 @@
 
 **Compare the evidence, explain the tradeoff, and ask before buying.**
 
-NorthCinder adds strict product and seller facts, deterministic buyer-criteria ranking, and an inspectable decision record to your AI app. Its default brief shows at most three candidates: top fit, lower risk, and a budget or different option when each exists.
+Agentic commerce should not hand shopping decisions to the largest marketplaces. When a platform controls what an agent sees and profits from its recommendations, the agent inherits those incentives. NorthCinder gives buyers an independent layer between their AI app and stores, where product evidence is compared on the buyer's terms.
 
 Search is separate from purchase authority. Checkout requires signed approval for the exact offer and quantity. Outcomes stay local, reminders only notify, and seller payment never improves rank.
 
